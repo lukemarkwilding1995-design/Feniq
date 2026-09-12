@@ -14,7 +14,7 @@ def build_report(job, engineer_name, photos, upload_dir: Path):
     title = ParagraphStyle("FenIQTitle", parent=styles["Title"], fontSize=24, leading=26, spaceAfter=4)
     h = ParagraphStyle("H", parent=styles["Heading3"], fontSize=11, leading=13, spaceBefore=9, spaceAfter=5, textColor=colors.HexColor("#14324a"))
     body = ParagraphStyle("B", parent=styles["BodyText"], fontSize=9.5, leading=13)
-    story = [Paragraph("FenIQ", title), Paragraph("FENESTRATION INTELLIGENCE — SERVICE REPORT", styles["Small"]), Spacer(1, 5*mm)]
+    story = [Paragraph("FenIQ", title), Paragraph("FENESTRATION INTELLIGENCE — SERVICE REPORT", styles["BodyText"]), Spacer(1, 5*mm)]
     data = [
         ["Customer / Site", job.customer or "—", "Reference", job.reference or "—"],
         ["Product", job.product or "—", "System", job.system_name or "—"],
@@ -55,7 +55,7 @@ def build_report(job, engineer_name, photos, upload_dir: Path):
             story.append(Table([row], colWidths=[52*mm]*3))
     story += [Spacer(1,7*mm), Paragraph(f"<b>Customer Sign-off:</b> {job.signature or 'Not signed'}",body)]
     if not job.approved_by_engineer:
-        story += [Spacer(1,3*mm), Paragraph("<b>Note:</b> Diagnosis has not been marked as engineer-approved.", styles["Small"])]
+        story += [Spacer(1,3*mm), Paragraph("<b>Note:</b> Diagnosis has not been marked as engineer-approved.", styles["BodyText"])]
     doc.build(story)
     buf.seek(0)
     return buf
