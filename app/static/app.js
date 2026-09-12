@@ -29,7 +29,25 @@ async function dashboard(){let js=await api("/api/jobs");$("sOpen").textContent=
 async function jobs(){let js=await api("/api/jobs"),q=($("search").value||"").toLowerCase(),c=$("jobsList");c.innerHTML="";js.filter(j=>(j.customer+" "+j.product+" "+j.diagnosis).toLowerCase().includes(q)).forEach(j=>c.appendChild(card(j)))}$("search").oninput=()=>jobs();
 async function analytics(){let a=await api("/api/analytics");$("aTotal").textContent=a.total;$("aResolved").textContent=a.resolved;$("aRemakes").textContent=a.remakes;$("aDiag").textContent=a.top_diagnosis?a.top_diagnosis[0]+" — "+a.top_diagnosis[1]+" job(s)":"No data";$("aProduct").textContent=a.top_product?a.top_product[0]+" — "+a.top_product[1]+" job(s)":"No data"}
 async function report(j){currentJob=j;$("rDate").textContent=new Date(j.created_at).toLocaleString();$("rCustomer").textContent=j.customer;$("rRef").textContent=j.reference;$("rProduct").textContent=j.product;$("rSystem").textContent=j.system_name;$("rEngineer").textContent=j.engineer.name;$("rOutcome").textContent=j.outcome;$("rFault").textContent=j.fault;$("rFindings").textContent=j.evidence.join(". ")+(j.evidence.length?".":"");$("rDiagnosis").textContent=`${j.diagnosis} (${j.confidence}% confidence). ${j.recommendation}`;$("rWork").textContent=j.work_done;$("rParts").textContent=j.parts_required;$("rNotes").textContent=j.engineer_notes;$("rSign").textContent=j.signature;let p=$("rPhotos");p.innerHTML="";j.photos.forEach(ph=>{let im=document.createElement("img");im.src=ph.url;p.appendChild(im)});$("aiBox").classList.add("hidden");go("report")}
-$("pdfBtn").onclick=()=>{if(currentJob)window.open(`/api/jobs/${currentJob.id}/report.pdf?x=1`,"_blank")};
+$("pdfBtn").onclick=async()=>{
+  if(!currentJob)return;
+  try{
+    const r=await fetch(`/api/jobs/${currentJob.id}/report.pdf`,{
+      headers:{Authorization:"Bearer "+token}
+    });
+    if(!r.ok)throw new Error("PDF request failed: "+r.status);
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.target="_blank";
+    a.rel="noopener";
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+  }catch(e){
+    alert("Unable to open PDF: "+e.message);
+  }
+};
 $("aiPhotoBtn").onclick=async()=>{if(!currentJob||!currentJob.photos.length){$("aiBox").classList.remove("hidden");$("aiBox").textContent="No photo available.";return}try{let r=await fetch(`/api/photos/${currentJob.photos[0].id}/analyse`,{method:"POST",headers:{"Authorization":"Bearer "+token}});let d=await r.json();$("aiBox").classList.remove("hidden");$("aiBox").innerHTML=`<h3>AI Photo Analysis</h3><p><b>Mode:</b> ${d.mode}</p><h4>Observations</h4><ul>${(d.observations||[]).map(x=>"<li>"+x+"</li>").join("")}</ul><h4>Possible faults</h4><ul>${(d.possible_faults||[]).map(x=>"<li>"+x+"</li>").join("")}</ul><h4>Recommended checks</h4><ul>${(d.recommended_checks||[]).map(x=>"<li>"+x+"</li>").join("")}</ul><h4>Limitations</h4><ul>${(d.safety_or_limitations||[]).map(x=>"<li>"+x+"</li>").join("")}</ul>`}catch(e){alert(e.message)}};
 $("companyBtn").onclick=async()=>{let c=await api("/api/company");$("companyName").textContent=c.name;$("inviteCode").textContent=c.invite_code||"Visible to admins only";let box=$("usersBox");box.innerHTML="";if(user.role==="admin"){let us=await api("/api/company/users");us.forEach(u=>{let d=document.createElement("div");d.className="user";d.innerHTML=`<b>${u.name}</b><small>${u.email} · ${u.role}</small>`;box.appendChild(d)})}go("company")};
 (async()=>{if(token){try{user=await api("/api/me");$("auth").classList.add("hidden");$("shell").classList.remove("hidden");$("roleBadge").textContent=user.role.toUpperCase();$("companyText").textContent=user.company;$("welcome").textContent="Welcome, "+user.name;dashboard()}catch(e){localStorage.removeItem("feniq_token");token=""}}})();
