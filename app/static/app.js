@@ -12,7 +12,17 @@ const modules={
 };
 Object.keys(modules).forEach(n=>{let o=document.createElement("option");o.textContent=n;$("module").appendChild(o)});
 async function api(url,opts={}){opts.headers={...(opts.headers||{}),...(token?{"Authorization":"Bearer "+token}:{})};let r=await fetch(url,opts);if(!r.ok){let t=await r.text();throw new Error(t)}let ct=r.headers.get("content-type")||"";return ct.includes("json")?r.json():r}
-function go(id){document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));$(id).classList.add("active");if(id==="dashboard")dashboard();if(id==="jobs")jobs();if(id==="analytics")analytics();window.scrollTo(0,0)}
+function go(id){
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+  const target=$(id);
+  if(!target){console.error("FenIQ screen not found:",id);return}
+  target.classList.add("active");
+  window.scrollTo(0,0);
+  if(id==="dashboard") dashboard();
+  if(id==="jobs") jobs();
+  if(id==="analytics") analytics();
+  if(id==="learning") learning();
+}
 document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>go(b.dataset.go));
 function tab(which){["Login","Register","Join"].forEach(x=>{$("tab"+x).classList.toggle("selected",x.toLowerCase()===which);$(x.toLowerCase()+"Form").classList.toggle("hidden",x.toLowerCase()!==which)})}
 $("tabLogin").onclick=()=>tab("login");$("tabRegister").onclick=()=>tab("register");$("tabJoin").onclick=()=>tab("join");
@@ -67,7 +77,7 @@ async function learning(){
  let ps=await api("/api/learning/patterns"),c=$("patternList");c.innerHTML="";
  ps.forEach(p=>{let d=document.createElement("div");d.className="job";d.innerHTML=`<b>${p.predicted_diagnosis}</b><small>${p.cases} confirmed case(s)</small><p>Diagnosis confirmation: ${p.confirmation_rate}%<br>Repair resolution: ${p.resolution_rate}%</p>`;c.appendChild(d)})
 }
-$("learningNav").onclick=()=>{go("learning");learning()};
+$("learningNav").onclick=()=>go("learning");
 
 async function captureLearning(job){
  let confirmed=prompt("Engineer-confirmed diagnosis:",job.diagnosis||"");
