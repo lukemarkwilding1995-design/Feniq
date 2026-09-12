@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "documents": [],
+  "required_metadata": [
+    "manufacturer",
+    "system",
+    "document_title",
+    "revision",
+    "publication_date",
+    "source_reference",
+    "verification_status"
+  ],
+  "verification_status_values": [
+    "verified",
+    "superseded",
+    "pending_review"
+  ],
+  "note": "No manufacturer-specific numerical specification should be promoted into diagnostic logic until a controlled source record exists here."
+}

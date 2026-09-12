@@ -1,0 +1,20 @@
+{
+  "status": "routed",
+  "manufacturer": "AluK",
+  "system": "S67 Sliding Door",
+  "verification_status": "pending_verification",
+  "recommended_module": "sliding_door",
+  "module_options": [
+    "sliding_door",
+    "gasket_compression",
+    "multipoint_lock"
+  ],
+  "field_patterns": [
+    "Sliding resistance",
+    "Roller/sash level",
+    "Handle/lock engagement",
+    "Thermal trim seating",
+    "Gasket contact"
+  ],
+  "notice": "Manufacturer/system routing is available, but technical limits remain pending source verification unless explicitly marked verified."
+}

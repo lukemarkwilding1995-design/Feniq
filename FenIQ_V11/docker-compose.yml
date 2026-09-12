@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: feniq
+      POSTGRES_USER: feniq
+      POSTGRES_PASSWORD: feniq_change_me
+    volumes:
+      - feniq_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U feniq -d feniq"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - feniq_uploads:/app/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  feniq_pgdata:
+  feniq_uploads:

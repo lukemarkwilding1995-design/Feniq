@@ -1,0 +1,41 @@
+{
+  "release": "V11 Launch Candidate",
+  "ready_in_code": [
+    "Docker deployment",
+    "PostgreSQL-ready SQLAlchemy storage",
+    "JWT authentication",
+    "company isolation",
+    "admin/engineer roles",
+    "diagnostic engine",
+    "manufacturer routing",
+    "knowledge library",
+    "engineer learning",
+    "customer/work-order operations",
+    "approval workflow",
+    "server PDF reports",
+    "photo uploads",
+    "AI vision integration path",
+    "health endpoint",
+    "audit-event model"
+  ],
+  "before_real_customer_data": [
+    "Connect managed PostgreSQL",
+    "Use cloud object storage for photos",
+    "Set long random SECRET_KEY",
+    "Configure HTTPS/domain",
+    "Add email verification/password reset",
+    "Add rate limiting",
+    "Add database migration runner",
+    "Backups and restore test",
+    "Privacy notice/DPA/retention policy",
+    "Security review and automated test suite"
+  ],
+  "before_taking_payments": [
+    "Connect Stripe or another PCI-compliant provider",
+    "Webhook signature verification",
+    "Subscription entitlement state",
+    "VAT/tax configuration",
+    "Invoice/customer lifecycle",
+    "Cancellation/downgrade handling"
+  ]
+}

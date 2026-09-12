@@ -1,0 +1,168 @@
+{
+  "version": "7.0",
+  "verification_policy": {
+    "verified": "Supported by a controlled manufacturer/approved technical document with source, revision and date.",
+    "field_rule": "FenIQ field diagnostic logic based on engineering workflow; not an official manufacturer specification.",
+    "pending_verification": "Product/system association is useful for routing but technical limits/specifications have not yet been source-verified."
+  },
+  "manufacturers": [
+    {
+      "id": "residence_collection",
+      "name": "Residence Collection",
+      "status": "pending_verification",
+      "systems": [
+        {
+          "id": "residence_french_door",
+          "name": "Residence French Door",
+          "product_types": [
+            "French Door"
+          ],
+          "recommended_modules": [
+            "french_door_clearance",
+            "locking_camb_keep",
+            "toe_and_heel",
+            "multipoint_lock",
+            "gasket_compression"
+          ],
+          "field_patterns": [
+            "Restricted sash clearance / oversized-sash investigation",
+            "Low aluminium threshold clearance sensitivity",
+            "Master/slave meeting sightline investigation",
+            "Astragal-bar fit/retention investigation",
+            "Locking/keep interference"
+          ]
+        },
+        {
+          "id": "residence_window",
+          "name": "Residence Window",
+          "product_types": [
+            "Window"
+          ],
+          "recommended_modules": [
+            "locking_camb_keep",
+            "toe_and_heel",
+            "gasket_compression",
+            "friction_stay_hinge"
+          ],
+          "field_patterns": [
+            "Locking camb/keep interference",
+            "Opening sash alignment",
+            "Gasket/compression",
+            "Hinge/friction-stay condition"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "aluk",
+      "name": "AluK",
+      "status": "pending_verification",
+      "systems": [
+        {
+          "id": "aluk_s67",
+          "name": "S67 Sliding Door",
+          "product_types": [
+            "Sliding Door"
+          ],
+          "recommended_modules": [
+            "sliding_door",
+            "gasket_compression",
+            "multipoint_lock"
+          ],
+          "field_patterns": [
+            "Sliding resistance",
+            "Roller/sash level",
+            "Handle/lock engagement",
+            "Thermal trim seating",
+            "Gasket contact"
+          ]
+        },
+        {
+          "id": "aluk_58bw",
+          "name": "58BW Window",
+          "product_types": [
+            "Window"
+          ],
+          "recommended_modules": [
+            "locking_camb_keep",
+            "friction_stay_hinge",
+            "gasket_compression"
+          ],
+          "field_patterns": [
+            "Camb/frame interference",
+            "Sash alignment",
+            "Handle/locking operation"
+          ]
+        },
+        {
+          "id": "aluk_58bd",
+          "name": "58BD Door",
+          "product_types": [
+            "Residential Door",
+            "French Door"
+          ],
+          "recommended_modules": [
+            "locking_camb_keep",
+            "multipoint_lock",
+            "gasket_compression",
+            "toe_and_heel"
+          ],
+          "field_patterns": [
+            "Lock/keep alignment",
+            "Door sash drop",
+            "Compression",
+            "Mechanism operation"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cotswold",
+      "name": "Cotswold",
+      "status": "pending_verification",
+      "systems": [
+        {
+          "id": "cotswold_friction_stay",
+          "name": "Friction Stay / Egress-Easy-Clean Hardware",
+          "product_types": [
+            "Window"
+          ],
+          "recommended_modules": [
+            "friction_stay_hinge"
+          ],
+          "field_patterns": [
+            "Sash catching",
+            "Hinge damage",
+            "Fixing security",
+            "Closing-line alignment",
+            "Final fixing verification"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "avantis",
+      "name": "Avantis",
+      "status": "pending_verification",
+      "systems": [
+        {
+          "id": "avantis_window_locking",
+          "name": "Window Locking / Keep System",
+          "product_types": [
+            "Window"
+          ],
+          "recommended_modules": [
+            "locking_camb_keep",
+            "multipoint_lock"
+          ],
+          "field_patterns": [
+            "Keep interference",
+            "Camb engagement",
+            "Handle loading",
+            "Locking-point alignment"
+          ]
+        }
+      ]
+    }
+  ]
+}

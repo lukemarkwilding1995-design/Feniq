@@ -1,0 +1,17 @@
+{
+  "version": "9.0",
+  "learning_principles": [
+    "Engineer-confirmed outcomes are ground truth candidates; AI predictions are not.",
+    "Learning records preserve predicted diagnosis separately from confirmed diagnosis.",
+    "A resolved repair is recorded independently from diagnosis agreement.",
+    "Repeat visits are tracked as a quality signal.",
+    "Manufacturer specifications are never inferred from accumulated field outcomes.",
+    "Future model/rule updates must be evaluated on held-out confirmed jobs before release.",
+    "Customer-identifying fields are not required in the learning record."
+  ],
+  "dataset_milestones": {
+    "0-49": "baseline",
+    "50-249": "early_dataset",
+    "250+": "growing_dataset"
+  }
+}

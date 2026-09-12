@@ -1,0 +1,294 @@
+{
+  "schema_version": "1.0",
+  "guides": [
+    {
+      "id": "guide_locking_cambs",
+      "title": "Locking Camb Adjustment",
+      "status": "field_guide",
+      "products": [
+        "Window",
+        "French Door",
+        "Residential Door"
+      ],
+      "systems": [],
+      "components": [
+        "locking camb",
+        "roller",
+        "keep",
+        "multipoint lock"
+      ],
+      "diagnostic_modules": [
+        "locking_camb_keep"
+      ],
+      "summary": "Controlled adjustment workflow for locking camb/roller engagement and compression.",
+      "steps": [
+        "Operate the mechanism with the sash or door open to establish whether the mechanism itself moves freely.",
+        "Inspect each locking point and keep for witness marks or local interference.",
+        "Confirm sash alignment before changing locking compression.",
+        "Adjust the eccentric locking cam/roller in small controlled increments where the installed hardware permits adjustment.",
+        "Check that each locking point enters its keep without forcing the handle.",
+        "Confirm gasket compression remains even around the sash.",
+        "Cycle the mechanism repeatedly and record the final result."
+      ],
+      "warnings": [
+        "Do not use camb adjustment to mask a dropped or incorrectly aligned sash.",
+        "Do not force the handle against a misaligned keep."
+      ],
+      "source_status": "FenIQ field guide \u2014 manufacturer verification pending"
+    },
+    {
+      "id": "guide_toe_heel",
+      "title": "Toe & Heel Glazing Adjustment",
+      "status": "field_guide",
+      "products": [
+        "Window",
+        "French Door",
+        "Residential Door",
+        "Bifold"
+      ],
+      "systems": [],
+      "components": [
+        "glass unit",
+        "glazing packer",
+        "sash"
+      ],
+      "diagnostic_modules": [
+        "toe_and_heel",
+        "french_door_clearance",
+        "bifold_alignment"
+      ],
+      "summary": "Glazing-support workflow used to correct sash drop while maintaining safe glass support.",
+      "steps": [
+        "Support the sash and glazing before removing beads.",
+        "Record the existing packer arrangement before alteration.",
+        "Confirm the frame and sash geometry so glazing adjustment is not used to mask a frame problem.",
+        "Position suitable load-bearing packers to transfer the glazing-unit weight through the sash toward the hinge/support side.",
+        "Avoid point loading and keep packers correctly located beneath the glazing unit.",
+        "Refit beads and confirm the glazing unit is secure.",
+        "Check sash diagonal, clearances, locking and final operation."
+      ],
+      "warnings": [
+        "Use appropriate glazing practices and PPE.",
+        "Do not leave the glass unsupported during adjustment."
+      ],
+      "source_status": "FenIQ field guide \u2014 manufacturer verification pending"
+    },
+    {
+      "id": "guide_friction_stay",
+      "title": "Friction Stay / Window Hinge Inspection & Adjustment",
+      "status": "field_guide",
+      "products": [
+        "Window"
+      ],
+      "systems": [
+        "cotswold_friction_stay"
+      ],
+      "components": [
+        "friction stay",
+        "hinge",
+        "sash"
+      ],
+      "diagnostic_modules": [
+        "friction_stay_hinge"
+      ],
+      "summary": "Inspection workflow for sash catching, damaged stays, fixing security and final alignment.",
+      "steps": [
+        "Support the opening sash before working on the hinge or friction stay.",
+        "Identify the installed hinge type and size before selecting replacement hardware.",
+        "Inspect the stay arms, pivots, track and fixing points for distortion or damage.",
+        "Check fixing security and the condition of the fixing substrate.",
+        "Correct sash alignment only within the adjustment method permitted by the installed hardware.",
+        "Where replacement is required, use the correct handed/type/size hardware.",
+        "Install required final fixing screws where specified by the verified hardware instructions.",
+        "Test opening, closing, clearances and locking."
+      ],
+      "warnings": [
+        "A damaged stay can allow unexpected sash movement; support the sash.",
+        "Final fixing requirements must be confirmed against the specific hardware documentation."
+      ],
+      "source_status": "FenIQ field guide \u2014 Cotswold-specific details pending controlled-source verification"
+    },
+    {
+      "id": "guide_french_door_clearance",
+      "title": "French Door Sash Clearance Investigation",
+      "status": "field_guide",
+      "products": [
+        "French Door"
+      ],
+      "systems": [
+        "residence_french_door"
+      ],
+      "components": [
+        "master sash",
+        "slave sash",
+        "floating mullion",
+        "hinge",
+        "threshold"
+      ],
+      "diagnostic_modules": [
+        "french_door_clearance"
+      ],
+      "summary": "Measurement-led investigation for catching, restricted clearance, low-threshold and oversized-sash concerns.",
+      "steps": [
+        "Record the frame opening and sash dimensions before recommending remanufacture.",
+        "Measure top and bottom sash clearances.",
+        "Measure the master/slave meeting sightline.",
+        "Check whether hinge adjustment is already at or near its usable limit.",
+        "Check frame level, square, plumb and threshold geometry.",
+        "Check glazing support/toe-and-heel before concluding the sash is oversized.",
+        "Re-test both master and slave leaves through the complete locking sequence.",
+        "If dimensions and geometry support a remake conclusion, require engineer approval before ordering."
+      ],
+      "warnings": [
+        "FenIQ working clearances are not universal manufacturer specifications.",
+        "Do not approve a remake from photographs alone."
+      ],
+      "source_status": "FenIQ field guide \u2014 Residence-specific tolerances pending controlled-source verification"
+    },
+    {
+      "id": "guide_gasket",
+      "title": "Gasket & Compression Inspection",
+      "status": "field_guide",
+      "products": [
+        "Window",
+        "French Door",
+        "Residential Door",
+        "Bifold",
+        "Sliding Door"
+      ],
+      "systems": [],
+      "components": [
+        "gasket",
+        "seal",
+        "bead gasket"
+      ],
+      "diagnostic_modules": [
+        "gasket_compression"
+      ],
+      "summary": "Inspection for shrinkage, corner gaps, damage and uneven sash compression.",
+      "steps": [
+        "Inspect the full gasket perimeter and all corners/mitres.",
+        "Record visible shrinkage, splits or local damage.",
+        "Check whether locking compression is even before replacing gasket.",
+        "Confirm the gasket is correctly seated in its groove.",
+        "Refit or replace only the affected gasket using the correct profile/specification.",
+        "Use only approved maintenance products where applicable.",
+        "Re-test operation, compression and visible sealing."
+      ],
+      "warnings": [
+        "Do not compensate for major sash misalignment by fitting an unsuitable thicker gasket."
+      ],
+      "source_status": "FenIQ field guide \u2014 system-specific gasket specifications pending verification"
+    },
+    {
+      "id": "guide_multipoint",
+      "title": "Multipoint Lock / Gearbox Investigation",
+      "status": "field_guide",
+      "products": [
+        "Window",
+        "French Door",
+        "Residential Door"
+      ],
+      "systems": [
+        "avantis_window_locking"
+      ],
+      "components": [
+        "gearbox",
+        "multipoint lock",
+        "shootbolt",
+        "extension",
+        "keep"
+      ],
+      "diagnostic_modules": [
+        "multipoint_lock",
+        "locking_camb_keep"
+      ],
+      "summary": "Separates alignment/keep loading from an internal mechanism failure before parts are ordered.",
+      "steps": [
+        "Test the mechanism with the sash or door open.",
+        "Check whether handle movement drives all locking points.",
+        "Inspect the gearbox, extensions and shootbolts for failed or disconnected movement.",
+        "Check keeps for excessive loading or interference.",
+        "Confirm the exact lock specification, backset, centres and extension arrangement before ordering.",
+        "After repair, test repeatedly both open and closed."
+      ],
+      "warnings": [
+        "Do not diagnose a failed gearbox solely because the handle is stiff when the sash is closed."
+      ],
+      "source_status": "FenIQ field guide \u2014 hardware-specific part data pending verification"
+    },
+    {
+      "id": "guide_s67_slider",
+      "title": "Aluminium Sliding Door Alignment & Operation",
+      "status": "field_guide",
+      "products": [
+        "Sliding Door"
+      ],
+      "systems": [
+        "aluk_s67"
+      ],
+      "components": [
+        "roller",
+        "track",
+        "sliding sash",
+        "gasket",
+        "lock",
+        "thermal trim"
+      ],
+      "diagnostic_modules": [
+        "sliding_door",
+        "gasket_compression",
+        "multipoint_lock"
+      ],
+      "summary": "Field workflow for high sliding resistance, sash contact and locking difficulty.",
+      "steps": [
+        "Inspect the track and running surfaces for obstruction or damage.",
+        "Check the sliding sash for level and even support.",
+        "Inspect roller operation before changing lock keeps.",
+        "Check for excessive gasket or cover contact against the moving sash.",
+        "Check thermal trims/covers are correctly seated and not interfering with travel.",
+        "Adjust sash/rollers using the verified system procedure.",
+        "Check lock and handle engagement after the sash runs freely.",
+        "Test full travel repeatedly."
+      ],
+      "warnings": [
+        "AluK-specific adjustment limits and component specifications must be taken from controlled technical documentation."
+      ],
+      "source_status": "FenIQ field guide \u2014 AluK S67-specific specifications pending controlled-source verification"
+    },
+    {
+      "id": "guide_bifold",
+      "title": "Bifold Alignment & Locking Sequence",
+      "status": "field_guide",
+      "products": [
+        "Bifold"
+      ],
+      "systems": [],
+      "components": [
+        "roller",
+        "hinge",
+        "panel",
+        "meeting stile",
+        "threshold"
+      ],
+      "diagnostic_modules": [
+        "bifold_alignment",
+        "toe_and_heel"
+      ],
+      "summary": "Structured investigation of dragging panels, meeting-stile alignment and locking.",
+      "steps": [
+        "Check head and threshold level before panel adjustment.",
+        "Measure panel-to-frame and panel-to-panel clearances.",
+        "Check rollers, guides and hinges for damage or poor adjustment.",
+        "Check toe-and-heel/glazing support where glazed panel drop is present.",
+        "Align meeting stiles before altering locking keeps.",
+        "Operate the complete opening and closing sequence.",
+        "Confirm all locks engage without lifting or forcing panels."
+      ],
+      "warnings": [
+        "Do not use locking keeps to pull severely misaligned panels into position."
+      ],
+      "source_status": "FenIQ field guide \u2014 system-specific adjustment procedures pending verification"
+    }
+  ]
+}

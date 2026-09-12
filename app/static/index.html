@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FenIQ V5</title><link rel="stylesheet" href="/static/styles.css"></head>
+<body><div class="app">
+<section id="auth" class="auth">
+<div class="authcard">
+<div class="logo">Fen<span>IQ</span></div><small>FENESTRATION INTELLIGENCE</small>
+<h1>Production-style Beta</h1>
+<div class="tabs"><button id="tabLogin" class="selected">Login</button><button id="tabRegister">Create Company</button><button id="tabJoin">Join Company</button></div>
+<div id="loginForm"><input id="loginEmail" placeholder="Email"><input id="loginPassword" type="password" placeholder="Password"><button id="loginBtn" class="primary">Sign in</button></div>
+<div id="registerForm" class="hidden"><input id="regCompany" placeholder="Company name"><input id="regName" placeholder="Your name"><input id="regEmail" placeholder="Email"><input id="regPassword" type="password" placeholder="Password (8+ characters)"><button id="registerBtn" class="primary">Create Company</button></div>
+<div id="joinForm" class="hidden"><input id="joinCode" placeholder="Company invite code"><input id="joinName" placeholder="Your name"><input id="joinEmail" placeholder="Email"><input id="joinPassword" type="password" placeholder="Password (8+ characters)"><button id="joinBtn" class="primary">Join as Engineer</button></div>
+<p id="authMsg" class="muted"></p>
+</div></section>
+
+<div id="shell" class="hidden">
+<header><div><div class="logo small">Fen<span>IQ</span></div><small id="companyText"></small></div><div><span id="roleBadge" class="badge"></span><button id="logout">↪</button></div></header>
+<main>
+<section id="dashboard" class="screen active"><p class="eyebrow">WORKSPACE</p><h2 id="welcome"></h2><button class="primary hero" data-go="newjob">+ New Inspection</button><div class="stats"><div><b id="sOpen">0</b><span>Open</span></div><div><b id="sReports">0</b><span>Reports</span></div><div><b id="sRemakes">0</b><span>Remakes</span></div></div><div class="sectionhead"><h3>Recent Jobs</h3><button data-go="jobs">View all</button></div><div id="recentJobs" class="list"></div><div class="quick"><button data-go="analytics">📊<b>Analytics</b></button><button id="libraryBtn">📘<b>Knowledge</b></button></div></section>
+
+<section id="newjob" class="screen"><p class="eyebrow">NEW INSPECTION</p><h2>Job Details</h2><label>Customer / Site<input id="customer"></label><label>Reference<input id="reference"></label><label>Product<select id="product"><option>French Door</option><option>Window</option><option>Residential Door</option><option>Bifold</option><option>Sliding Door</option><option>Tilt & Turn</option></select></label><label>System / Manufacturer<input id="system"></label><label>Reported Fault<textarea id="fault" rows="4"></textarea></label><label>Diagnostic Module<select id="module"></select></label><button id="checksBtn" class="primary">Continue</button></section>
+
+<section id="checks" class="screen"><p class="eyebrow">DIAGNOSTIC CHECKS</p><h2 id="checksTitle"></h2><div id="checksBox"></div><button id="diagnoseBtn" class="primary">Run FenIQ Diagnosis</button></section>
+
+<section id="result" class="screen"><p class="eyebrow">DIAGNOSIS</p><div class="result"><small>Most likely cause</small><h2 id="diagTitle"></h2><div class="bar"><span id="barFill"></span></div><b id="confidence"></b></div><div class="panel"><h3>Evidence</h3><ul id="evidence"></ul></div><div class="panel warning"><h3>Recommended Action</h3><p id="recommendation"></p></div><div class="notice">AI/rules provide decision support only. The engineer must approve conclusions before a remake or chargeable replacement is authorised.</div><div class="panel"><h3>Repair Steps</h3><ol id="steps"></ol></div><label>Work Carried Out<textarea id="work" rows="4"></textarea></label><label>Parts / Remake Required<input id="parts"></label><label>Outcome<select id="outcome"><option>Adjusted / Resolved</option><option>Parts Required</option><option>Remake Required</option><option>Further Investigation</option><option>No Fault Found</option></select></label><label>Engineer Notes<textarea id="notes" rows="4"></textarea></label><label>Customer Sign-off<input id="signature"></label><label class="checkline"><input id="approve" type="checkbox"> I have reviewed and approve this diagnosis</label><label>Photo Evidence<input id="photos" type="file" accept="image/*" multiple></label><button id="saveBtn" class="primary">Save Inspection</button></section>
+
+<section id="jobs" class="screen"><h2>Jobs</h2><input id="search" placeholder="Search jobs"><div id="jobsList" class="list"></div></section>
+<section id="library" class="screen"><h2>Knowledge Library</h2><input id="guideSearch" placeholder="Search cambs, hinges, S67, gasket..."><div id="guideList" class="list"></div></section>
+<section id="learning" class="screen">
+<h2>Engineer Learning</h2>
+<div class="stats"><div><b id="lRecords">0</b><span>Confirmed Jobs</span></div><div><b id="lAccuracy">0%</b><span>Diagnosis Confirmed</span></div><div><b id="lResolution">0%</b><span>Resolved</span></div></div>
+<div class="panel"><h3>Dataset Status</h3><p id="lStatus"></p><p id="lRepeat"></p></div>
+<div id="patternList" class="list"></div>
+</section>
+<section id="analytics" class="screen"><h2>Analytics</h2><div class="stats"><div><b id="aTotal">0</b><span>Total</span></div><div><b id="aResolved">0</b><span>Resolved</span></div><div><b id="aRemakes">0</b><span>Remakes</span></div></div><div class="panel"><h3>Top Diagnosis</h3><p id="aDiag"></p></div><div class="panel"><h3>Top Product</h3><p id="aProduct"></p></div></section>
+<section id="company" class="screen"><h2>Company</h2><div class="panel"><h3 id="companyName"></h3><p>Invite code: <b id="inviteCode"></b></p></div><div id="usersBox" class="list"></div></section>
+
+<section id="report" class="screen"><div class="report"><div class="rhead"><div class="rlogo">Fen<span>IQ</span></div><div><b>SERVICE REPORT</b><small id="rDate"></small></div></div><div class="rgrid"><div><b>Customer</b><span id="rCustomer"></span></div><div><b>Reference</b><span id="rRef"></span></div><div><b>Product</b><span id="rProduct"></span></div><div><b>System</b><span id="rSystem"></span></div><div><b>Engineer</b><span id="rEngineer"></span></div><div><b>Outcome</b><span id="rOutcome"></span></div></div><h3>Reported Fault</h3><p id="rFault"></p><h3>Inspection & Findings</h3><p id="rFindings"></p><h3>Diagnosis</h3><p id="rDiagnosis"></p><h3>Work Carried Out</h3><p id="rWork"></p><h3>Parts / Further Requirements</h3><p id="rParts"></p><h3>Engineer Notes</h3><p id="rNotes"></p><div id="rPhotos" class="photos"></div><div class="sign"><b>Customer Sign-off:</b> <span id="rSign"></span></div></div><button id="aiPhotoBtn" class="secondary">✨ Analyse First Photo with AI</button><div id="aiBox" class="panel hidden"></div><button id="pdfBtn" class="primary">Open Server PDF</button></section>
+</main>
+<nav><button data-go="dashboard">Home</button><button data-go="newjob">New Job</button><button data-go="jobs">Jobs</button><button data-go="analytics">Analytics</button><button id="learningNav">Learning</button></nav>
+</div></div><script src="/static/app.js"></script></body></html>

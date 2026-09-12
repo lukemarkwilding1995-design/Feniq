@@ -1,0 +1,39 @@
+{
+  "status": "diagnosed",
+  "module": "french_door_clearance",
+  "module_name": "French Door Sash Clearance & Alignment",
+  "diagnosis_id": "oversized_sash",
+  "title": "Oversized sash / insufficient manufacturing clearance",
+  "confidence": 97,
+  "evidence": [
+    "Bottom clearance is critically restricted.",
+    "Top clearance is restricted.",
+    "Meeting sightline is below the FenIQ working target of 6 mm.",
+    "Available hinge adjustment has been exhausted.",
+    "Frame geometry has been checked and reported acceptable.",
+    "Low aluminium threshold recorded; clearance sensitivity should be checked.",
+    "Sash dimensions have been independently verified."
+  ],
+  "matched_rules": [
+    "FD01",
+    "FD02",
+    "FD03",
+    "FD04",
+    "FD05",
+    "FD06",
+    "FD07"
+  ],
+  "recommendation": "Compare verified sash and frame dimensions against the approved manufacturing specification. If geometry is acceptable and adjustment is exhausted, escalate for an engineer-approved remake decision.",
+  "repair_steps": [
+    "Confirm frame level, square and plumb",
+    "Record top and bottom clearances",
+    "Record meeting sightline",
+    "Confirm hinge adjustment range",
+    "Check toe-and-heel / glass packing",
+    "Verify sash and frame dimensions",
+    "Engineer approves or rejects remake"
+  ],
+  "commercial_gate": true,
+  "engineer_approval_required": true,
+  "rule_note": "FenIQ working rules are decision-support logic and are not manufacturer specifications unless separately verified."
+}

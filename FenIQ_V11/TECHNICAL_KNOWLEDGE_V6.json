@@ -1,0 +1,27 @@
+{
+  "version": "6.0",
+  "principles": [
+    "Measurements and physical checks outrank image inference.",
+    "AI observations must be separated from verified engineer findings.",
+    "No remake, chargeable part or warranty decision is authorised without engineer approval.",
+    "Manufacturer-specific tolerances must be versioned and source-verified before being treated as specifications.",
+    "Completed repair outcome should be recorded so diagnosis accuracy can later be measured."
+  ],
+  "initial_modules": [
+    "French Door Sash Clearance & Alignment",
+    "Locking Camb & Keep Diagnosis",
+    "Toe & Heel / Glazing Support",
+    "Multipoint Lock / Gearbox",
+    "Gasket, Draught & Compression",
+    "Friction Stay / Window Hinge",
+    "Bifold Panel Alignment",
+    "Sliding Door Alignment"
+  ],
+  "working_rules": {
+    "meeting_sightline_mm": {
+      "value": 6,
+      "status": "FenIQ working rule",
+      "note": "Not presented as a universal manufacturer specification."
+    }
+  }
+}

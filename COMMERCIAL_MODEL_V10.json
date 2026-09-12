@@ -1,0 +1,49 @@
+{
+  "version": "10.0",
+  "modules": [
+    "Customer CRM",
+    "Work Orders",
+    "Engineer Assignment",
+    "Scheduling",
+    "Approval Workflow",
+    "In-app Notifications",
+    "Commercial Dashboard",
+    "Plan Catalogue"
+  ],
+  "approval_types": [
+    "Replacement Part",
+    "Sash Remake",
+    "Full Frame Remake",
+    "Chargeable Repair",
+    "Warranty Escalation",
+    "Further Investigation"
+  ],
+  "work_order_statuses": [
+    "New",
+    "Scheduled",
+    "In Progress",
+    "Awaiting Approval",
+    "Complete",
+    "Cancelled"
+  ],
+  "plans": [
+    {
+      "name": "Engineer",
+      "price_gbp_month": 29
+    },
+    {
+      "name": "Pro",
+      "price_gbp_month": 99
+    },
+    {
+      "name": "Business",
+      "price_gbp_month": 299
+    },
+    {
+      "name": "Manufacturer",
+      "price_gbp_month": 999,
+      "note": "starting tier"
+    }
+  ],
+  "payment_status": "No payment processor connected. Pricing catalogue only."
+}
