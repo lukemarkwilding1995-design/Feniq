@@ -60,6 +60,17 @@ class Photo(Base):
     phase: Mapped[str] = mapped_column(String(30), default="before")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
+class DiagnosticSnapshot(Base):
+    __tablename__ = "diagnostic_snapshots"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), unique=True, index=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    captured_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    origin: Mapped[str] = mapped_column(String(40))
+    payload_json: Mapped[str] = mapped_column(Text)
+    sha256: Mapped[str] = mapped_column(String(64))
+
 class LearningRecord(Base):
     __tablename__ = "learning_records"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

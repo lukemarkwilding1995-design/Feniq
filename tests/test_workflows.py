@@ -16,11 +16,16 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from app.main import app
 from app.db import Base, engine
+from app.migrations import upgrade
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
         Base.metadata.drop_all(engine)
-        Base.metadata.create_all(engine)
+        with engine.begin() as connection:
+            connection.exec_driver_sql('DROP TABLE IF EXISTS feniq_schema_revisions')
+        upgrade(engine)
         self.client=TestClient(app)
         a=self.client.post('/api/register-company',json={'company_name':'Test Windows','admin_name':'Admin','email':'admin@example.com','password':'strong-password'}).json()
         self.admin={'Authorization':'Bearer '+a['token']}
@@ -38,6 +43,49 @@ class WorkflowTests(unittest.TestCase):
         self.assertIsNone(self.client.get('/api/company',headers=self.engineer).json()['invite_code'])
         self.assertEqual(self.client.post('/api/login',json={'email':'admin@example.com','password':'wrong'}).status_code,401)
         self.assertEqual(self.client.post('/api/register-company',json={'company_name':'  ','admin_name':'Admin','email':'bad','password':'password'}).status_code,422)
+
+    def test_snapshot_survives_edits_and_learning(self):
+        answers={'camb_catching':True,'works_open':True,'compression_even':'No','witness_marks':True,'keep_position_verified':True}
+        job=self.job(module='locking_camb_keep',diagnostic_answers=answers).json()
+        url='/api/jobs/'+job['id']+'/diagnostic-snapshot'
+        original=self.client.get(url,headers=self.engineer).json()
+        self.assertEqual(original['origin'],'server_diagnosis')
+        self.assertEqual(original['payload']['answers'],answers)
+        self.assertTrue(original['integrity_valid'])
+        job['diagnosis']='Engineer revised conclusion'
+        job['fault']='Updated observations'
+        self.assertEqual(self.client.patch('/api/jobs/'+job['id'],headers=self.engineer,json=job).status_code,200)
+        self.assertEqual(self.client.get(url,headers=self.engineer).json(),original)
+        saved=self.client.post('/api/jobs/'+job['id']+'/learning',headers=self.engineer,json={'confirmed_diagnosis':'Engineer revised conclusion','actual_repair':'Adjusted keep','resolved':True})
+        self.assertEqual(saved.status_code,200)
+        feedback=self.client.get('/api/jobs/'+job['id']+'/learning',headers=self.engineer).json()
+        self.assertEqual(feedback['predicted_diagnosis'],original['payload']['diagnosis'])
+        self.assertEqual(self.client.get(url).status_code,401)
+        other=self.client.post('/api/register-company',json={'company_name':'Other','admin_name':'Other','email':'other@example.com','password':'strong-password'}).json()
+        self.assertEqual(self.client.get(url,headers={'Authorization':'Bearer '+other['token']}).status_code,403)
+        colleague=self.client.post('/api/join-company',json={'invite_code':self.invite,'name':'Colleague','email':'colleague@example.com','password':'strong-password'}).json()
+        self.assertEqual(self.client.get(url,headers={'Authorization':'Bearer '+colleague['token']}).status_code,403)
+        for statement in ['UPDATE diagnostic_snapshots SET payload_json = :payload WHERE job_id = :job', 'DELETE FROM diagnostic_snapshots WHERE job_id = :job']:
+            with self.assertRaises(IntegrityError):
+                with engine.begin() as connection:
+                    connection.execute(text(statement),{'payload':'{}','job':job['id']})
+        self.assertEqual(self.client.get(url,headers=self.engineer).json(),original)
+
+    def test_legacy_snapshot_is_labelled_and_captured_before_edit(self):
+        from app.db import SessionLocal
+        from app.models import Job
+        with SessionLocal() as db:
+            db.add(Job(id='legacy-job',company_id=1,engineer_id=self.engineer_id,customer='Legacy site',diagnosis='Earlier recorded conclusion'))
+            db.commit()
+        url='/api/jobs/legacy-job'
+        self.assertIsNone(self.client.get(url+'/diagnostic-snapshot',headers=self.engineer).json())
+        job=self.client.get(url,headers=self.engineer).json()
+        job['diagnosis']='Revised conclusion'
+        self.assertEqual(self.client.patch(url,headers=self.engineer,json=job).status_code,200)
+        snapshot=self.client.get(url+'/diagnostic-snapshot',headers=self.engineer).json()
+        self.assertEqual(snapshot['origin'],'legacy_capture')
+        self.assertEqual(snapshot['payload']['diagnosis'],'Earlier recorded conclusion')
+        self.assertIsNone(snapshot['payload']['answers'])
 
     def test_complete_service_workflow(self):
         c=self.client.post('/api/customers',headers=self.admin,json={'name':'Cedar House','address':'Example address'}).json()

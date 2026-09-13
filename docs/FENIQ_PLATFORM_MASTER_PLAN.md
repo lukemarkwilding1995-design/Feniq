@@ -33,7 +33,7 @@ Foundations required before later waves:
 5. Reusable validation, error responses, accessible responsive forms and meaningful integration tests.
 6. Reliable configuration, observability, backup/restore procedures and deployment checks.
 
-Existing endpoints are not proof that these foundations are complete. The current application uses SQLAlchemy `create_all`; a production migration framework remains an explicit gate. Introduce additive, reviewed migrations with backfill/rollback procedures before adding platform tables to persistent production databases.
+Existing endpoints are not proof that these foundations are complete. The application now requires a versioned migration ledger; SQLite baseline adoption and snapshot migrations are tested. PostgreSQL integration and full legacy constraint reconciliation remain production gates. Introduce additive, reviewed migrations with backfill/rollback procedures before adding platform tables to persistent production databases.
 
 ## Approved extension: modules 41–52
 
@@ -90,7 +90,7 @@ Knowledge path: FenIQ controlled knowledge → verified supplier/manufacturer do
 
 Required classifications: Verified FenIQ Source; Official Manufacturer Web Source; Third-Party Technical Source; Field Guidance. Unreviewed imported material remains pending review and must not be promoted into numerical diagnostic rules.
 
-Learning records must ultimately preserve an immutable snapshot of original fault, evidence, measurements and predicted diagnosis alongside actual repair and verified outcome. Current records preserve the first feedback-time diagnosis/confidence; a complete execution-time immutable snapshot remains a gap.
+Learning records must ultimately preserve an immutable snapshot of original fault, evidence, measurements and predicted diagnosis alongside actual repair and verified outcome. Newly saved inspections now retain an immutable original diagnosis, fault, evidence, typed checks/units and rule fingerprint. New feedback uses that prediction. Legacy captures are labelled explicitly. Unsaved run history and immutable repair/outcome events remain gaps.
 
 ## Wave 1 capability map
 
@@ -107,7 +107,7 @@ Learning records must ultimately preserve an immutable snapshot of original faul
 | 7   | Fault/symptom capture                             | Demo workflow: reported fault and module selection                                            | Structured component/symptom taxonomy                                                                                     |
 | 8   | Photo/evidence capture                            | Demo workflow: before/after upload, validation, tenant-protected retrieval                    | Object storage, scan policy, deletion/retention, richer evidence types                                                    |
 | 9   | Structured modules                                | Demo workflow: eight server-defined modules                                                   | Versioned rule sets and reviewed coverage expansion inside approved scope                                                 |
-| 10  | Measurements/checks                               | Demo workflow: typed required findings, saved readable evidence                               | Persist typed immutable measurement snapshots and units/version metadata                                                  |
+| 10  | Measurements/checks                               | Demo workflow: typed required findings, saved readable evidence                               | Completed for first saved diagnosis; next add diagnostic-run revision history                                                  |
 | 11  | Rules-based engine                                | Demo workflow: server evaluation and save-time recomputation                                  | Rule version binding, stronger safety-condition evaluation and regression corpus                                          |
 | 12  | AI/vision assistance                              | Partial: existing live AI adapter, UI only when configured                                    | Provider error handling, mocked contract tests, quotas/privacy policy and structured output guarantees; no fake AI result |
 | 13  | Confidence/evidence                               | Demo workflow: rule score, evidence and limitations                                           | Calibrate scores only if justified; retain explicit non-probabilistic labelling                                           |
@@ -129,8 +129,8 @@ Learning records must ultimately preserve an immutable snapshot of original faul
 | 29  | Source classification                             | Partial: field guidance distinct from pending-review manufacturer files                       | Full approved four-class taxonomy and verification controls                                                               |
 | 30  | Product Passports                                 | Planned, persistent product identity defined in architecture                                  | Models/migration/permissions/API/UI/tests and immutable lifecycle events                                                  |
 | 31  | Technical Cases                                   | Planned, linked to passport and job                                                           | Case lifecycle, escalation, collaboration and resolution workflow; reuse module 46 for communications                     |
-| 32  | Engineer Learning Engine                          | Partial: outcome metrics and patterns UI                                                      | Governed dataset versioning, evaluation workflow and immutable snapshots                                                  |
-| 33  | Diagnosis → repair → outcome records              | Partial: LearningRecord linked to Job                                                         | Original fault/evidence/typed measurement snapshot at diagnosis time                                                      |
+| 32  | Engineer Learning Engine                          | Partial: outcome metrics and patterns UI                                                      | Governed dataset versioning, evaluation and immutable outcome events                                                  |
+| 33  | Diagnosis → repair → outcome records              | Partial: LearningRecord linked to Job                                                         | First-save original snapshot implemented; next immutable repair/outcome events                                                      |
 | 34  | Governed/anonymised improvement                   | Partial: explicit opt-in flag, no automatic model updates                                     | Actual anonymisation pipeline, consent enforcement and reviewed promotion process                                         |
 | 35  | Pattern/repeat-failure intelligence               | Partial: diagnosis aggregates and repeat-visit metrics scoped by role                         | Product/component-linked recurrence analysis and sample-size reporting                                                    |
 | 36  | Dashboard/analytics                               | Demo workflow: inspections, visits, resolved records, approvals and feedback                  | Date filters, consistent definitions and production-scale queries                                                         |
@@ -142,7 +142,7 @@ Learning records must ultimately preserve an immutable snapshot of original faul
 ## Next implementation sequence
 
 1. Complete and verify the current demo/library cycle, preserve private assets outside Git and record the exact tested commit.
-2. Establish a migration baseline, tenant/permission policy and immutable diagnostic/execution snapshots with regression tests. Harden existing gates and final verification before adding more domains.
+2. Migration baseline and immutable first-save diagnostic snapshots are implemented and tested on SQLite. Complete the tenant/permission audit, transition gates and final verification; validate PostgreSQL before production deployment.
 3. Add shared Site/Product identity and Product Passports; link existing Jobs/WorkOrders through additive migrations. Then Technical Cases reuse those identities and existing approvals/notifications.
 4. Implement controlled-source review/versioning and verified evidence retrieval in diagnosis. Add official Internet source search with provenance after trusted retrieval is stable.
 5. Complete remaining Wave 1 gaps (governed learning, portal contributions, subscriptions and operational production requirements) in bounded cycles, meeting the definition of done.

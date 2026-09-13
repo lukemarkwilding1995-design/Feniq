@@ -483,6 +483,7 @@ const pages = {
   },
   async report() {
     const j = activeJob;
+    const snapshot = await api(`/api/jobs/${j.id}/diagnostic-snapshot`);
     return (
       head(
         "INSPECTION RECORD",
@@ -490,6 +491,7 @@ const pages = {
         j.customer,
         `<div class="actions"><button data-action="edit-job">Edit inspection</button><button class="primary" data-action="pdf">Download PDF ↓</button></div>`,
       ) +
+      snapshotPanel(snapshot) +
       `<article class="panel"><div class="panel-head"><h2>FenIQ <small> / SERVICE REPORT</small></h2>${badge(j.approved_by_engineer ? "Engineer approved" : "Review required")}</div><div class="report-meta">${[
         ["Customer / site", j.customer],
         ["Product", j.product],
@@ -522,6 +524,28 @@ const pages = {
     );
   },
 };
+function snapshotPanel(snapshot) {
+  if (!snapshot)
+    return '<div class="notice">Legacy inspection: no original diagnostic snapshot is available. Its current record will be preserved before the next edit or first repair feedback.</div>';
+  const p = snapshot.payload;
+  const measurements =
+    p.answers === null
+      ? "Typed measurements were not available for this record."
+      : p.checks
+          .filter((c) => Object.hasOwn(p.answers, c.key))
+          .map((c) => {
+            const value = p.answers[c.key];
+            return `${c.label}: ${typeof value === "boolean" ? (value ? "Yes" : "No") : value}${c.unit ? " " + c.unit : ""}`;
+          })
+          .join("\n");
+  const label =
+    snapshot.origin === "server_diagnosis"
+      ? "Original saved server diagnosis"
+      : snapshot.origin === "legacy_capture"
+        ? "Legacy record captured before later changes"
+        : "Original engineer-entered record";
+  return `<details class="panel" style="margin-bottom:20px"><summary><b>${label}</b> · ${snapshot.integrity_valid ? "Integrity checked" : "Integrity check failed"}</summary><p>${esc(p.diagnosis || "No diagnosis recorded")}</p><small>Captured ${esc(date(snapshot.captured_at))}. Later report edits do not change this snapshot.</small><h4>Original fault</h4><p>${esc(p.fault)}</p><h4>Original evidence</h4><p style="white-space:pre-wrap">${esc(p.evidence.join("\n"))}</p><h4>Original measurements and checks</h4><p style="white-space:pre-wrap">${esc(measurements)}</p><p style="overflow-wrap:anywhere"><small>Record SHA-256: ${esc(snapshot.sha256)}<br>Rule file SHA-256: ${esc(p.rules_sha256 || "Not recorded")}</small></p></details>`;
+}
 function guideCards(gs) {
   return gs.length
     ? gs

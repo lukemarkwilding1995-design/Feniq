@@ -21,4 +21,7 @@ os.environ['DATABASE_URL']='sqlite:///'+str(data/'demo.db')
 os.environ['UPLOAD_DIR']=str(data/'photos')
 if args.library: os.environ['FENIQ_DOCUMENT_ROOT']=str(args.library.resolve())
 import uvicorn
+from app.db import engine
+from app.migrations import upgrade
+upgrade(engine)
 uvicorn.run('app.main:app',host='127.0.0.1',port=args.port)

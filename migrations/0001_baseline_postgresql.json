@@ -1,0 +1,216 @@
+[
+  {
+    "name": "companies",
+    "columns": [
+      "id",
+      "name",
+      "invite_code",
+      "created_at"
+    ],
+    "sql": [
+      "\nCREATE TABLE companies (\n\tid SERIAL NOT NULL, \n\tname VARCHAR(180) NOT NULL, \n\tinvite_code VARCHAR(64) NOT NULL, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tPRIMARY KEY (id)\n)\n\n",
+      "CREATE UNIQUE INDEX ix_companies_invite_code ON companies (invite_code)",
+      "CREATE UNIQUE INDEX ix_companies_name ON companies (name)"
+    ]
+  },
+  {
+    "name": "customers",
+    "columns": [
+      "id",
+      "company_id",
+      "name",
+      "contact_name",
+      "email",
+      "phone",
+      "address",
+      "created_at"
+    ],
+    "sql": [
+      "\nCREATE TABLE customers (\n\tid VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\tname VARCHAR(200) NOT NULL, \n\tcontact_name VARCHAR(200) NOT NULL, \n\temail VARCHAR(320) NOT NULL, \n\tphone VARCHAR(80) NOT NULL, \n\taddress TEXT NOT NULL, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id)\n)\n\n",
+      "CREATE INDEX ix_customers_company_id ON customers (company_id)",
+      "CREATE INDEX ix_customers_name ON customers (name)"
+    ]
+  },
+  {
+    "name": "users",
+    "columns": [
+      "id",
+      "company_id",
+      "email",
+      "name",
+      "password_hash",
+      "role",
+      "active",
+      "created_at"
+    ],
+    "sql": [
+      "\nCREATE TABLE users (\n\tid SERIAL NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\temail VARCHAR(255) NOT NULL, \n\tname VARCHAR(180) NOT NULL, \n\tpassword_hash TEXT NOT NULL, \n\trole VARCHAR(30) NOT NULL, \n\tactive BOOLEAN NOT NULL, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id)\n)\n\n",
+      "CREATE INDEX ix_users_company_id ON users (company_id)",
+      "CREATE UNIQUE INDEX ix_users_email ON users (email)"
+    ]
+  },
+  {
+    "name": "audit_events",
+    "columns": [
+      "id",
+      "company_id",
+      "user_id",
+      "action",
+      "entity_type",
+      "entity_id",
+      "detail_json",
+      "created_at"
+    ],
+    "sql": [
+      "\nCREATE TABLE audit_events (\n\tid VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\tuser_id INTEGER, \n\taction VARCHAR(100) NOT NULL, \n\tentity_type VARCHAR(80) NOT NULL, \n\tentity_id VARCHAR(80) NOT NULL, \n\tdetail_json TEXT NOT NULL, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id), \n\tFOREIGN KEY(user_id) REFERENCES users (id)\n)\n\n",
+      "CREATE INDEX ix_audit_events_action ON audit_events (action)",
+      "CREATE INDEX ix_audit_events_company_id ON audit_events (company_id)",
+      "CREATE INDEX ix_audit_events_created_at ON audit_events (created_at)",
+      "CREATE INDEX ix_audit_events_user_id ON audit_events (user_id)"
+    ]
+  },
+  {
+    "name": "jobs",
+    "columns": [
+      "id",
+      "company_id",
+      "engineer_id",
+      "created_at",
+      "updated_at",
+      "customer",
+      "reference",
+      "product",
+      "system_name",
+      "fault",
+      "module",
+      "diagnosis",
+      "confidence",
+      "evidence_json",
+      "recommendation",
+      "work_done",
+      "parts_required",
+      "outcome",
+      "engineer_notes",
+      "signature",
+      "approved_by_engineer"
+    ],
+    "sql": [
+      "\nCREATE TABLE jobs (\n\tid VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\tengineer_id INTEGER NOT NULL, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tupdated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tcustomer VARCHAR(255) NOT NULL, \n\treference VARCHAR(120) NOT NULL, \n\tproduct VARCHAR(100) NOT NULL, \n\tsystem_name VARCHAR(180) NOT NULL, \n\tfault TEXT NOT NULL, \n\tmodule VARCHAR(180) NOT NULL, \n\tdiagnosis TEXT NOT NULL, \n\tconfidence INTEGER NOT NULL, \n\tevidence_json TEXT NOT NULL, \n\trecommendation TEXT NOT NULL, \n\twork_done TEXT NOT NULL, \n\tparts_required TEXT NOT NULL, \n\toutcome VARCHAR(100) NOT NULL, \n\tengineer_notes TEXT NOT NULL, \n\tsignature VARCHAR(255) NOT NULL, \n\tapproved_by_engineer BOOLEAN NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id), \n\tFOREIGN KEY(engineer_id) REFERENCES users (id)\n)\n\n",
+      "CREATE INDEX ix_jobs_company_id ON jobs (company_id)",
+      "CREATE INDEX ix_jobs_created_at ON jobs (created_at)",
+      "CREATE INDEX ix_jobs_engineer_id ON jobs (engineer_id)"
+    ]
+  },
+  {
+    "name": "notifications",
+    "columns": [
+      "id",
+      "company_id",
+      "user_id",
+      "title",
+      "body",
+      "read",
+      "created_at"
+    ],
+    "sql": [
+      "\nCREATE TABLE notifications (\n\tid VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\tuser_id INTEGER NOT NULL, \n\ttitle VARCHAR(200) NOT NULL, \n\tbody TEXT NOT NULL, \n\tread BOOLEAN NOT NULL, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id), \n\tFOREIGN KEY(user_id) REFERENCES users (id)\n)\n\n",
+      "CREATE INDEX ix_notifications_company_id ON notifications (company_id)",
+      "CREATE INDEX ix_notifications_created_at ON notifications (created_at)",
+      "CREATE INDEX ix_notifications_read ON notifications (read)",
+      "CREATE INDEX ix_notifications_user_id ON notifications (user_id)"
+    ]
+  },
+  {
+    "name": "approval_requests",
+    "columns": [
+      "id",
+      "company_id",
+      "job_id",
+      "requested_by_id",
+      "approval_type",
+      "description",
+      "estimated_cost_pence",
+      "status",
+      "decision_by_id",
+      "decision_note",
+      "created_at"
+    ],
+    "sql": [
+      "\nCREATE TABLE approval_requests (\n\tid VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\tjob_id VARCHAR(64) NOT NULL, \n\trequested_by_id INTEGER NOT NULL, \n\tapproval_type VARCHAR(60) NOT NULL, \n\tdescription TEXT NOT NULL, \n\testimated_cost_pence INTEGER NOT NULL, \n\tstatus VARCHAR(30) NOT NULL, \n\tdecision_by_id INTEGER, \n\tdecision_note TEXT NOT NULL, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id), \n\tFOREIGN KEY(job_id) REFERENCES jobs (id), \n\tFOREIGN KEY(requested_by_id) REFERENCES users (id), \n\tFOREIGN KEY(decision_by_id) REFERENCES users (id)\n)\n\n",
+      "CREATE INDEX ix_approval_requests_company_id ON approval_requests (company_id)",
+      "CREATE INDEX ix_approval_requests_created_at ON approval_requests (created_at)",
+      "CREATE INDEX ix_approval_requests_job_id ON approval_requests (job_id)",
+      "CREATE INDEX ix_approval_requests_status ON approval_requests (status)"
+    ]
+  },
+  {
+    "name": "learning_records",
+    "columns": [
+      "id",
+      "job_id",
+      "company_id",
+      "engineer_id",
+      "created_at",
+      "predicted_diagnosis",
+      "predicted_confidence",
+      "confirmed_diagnosis",
+      "actual_repair",
+      "resolved",
+      "repeat_visit_required",
+      "remake_or_part_correct",
+      "engineer_rating",
+      "engineer_feedback",
+      "anonymised_for_learning"
+    ],
+    "sql": [
+      "\nCREATE TABLE learning_records (\n\tid VARCHAR(64) NOT NULL, \n\tjob_id VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\tengineer_id INTEGER NOT NULL, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tpredicted_diagnosis TEXT NOT NULL, \n\tpredicted_confidence INTEGER NOT NULL, \n\tconfirmed_diagnosis TEXT NOT NULL, \n\tactual_repair TEXT NOT NULL, \n\tresolved BOOLEAN NOT NULL, \n\trepeat_visit_required BOOLEAN NOT NULL, \n\tremake_or_part_correct VARCHAR(30) NOT NULL, \n\tengineer_rating INTEGER NOT NULL, \n\tengineer_feedback TEXT NOT NULL, \n\tanonymised_for_learning BOOLEAN NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(job_id) REFERENCES jobs (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id), \n\tFOREIGN KEY(engineer_id) REFERENCES users (id)\n)\n\n",
+      "CREATE INDEX ix_learning_records_company_id ON learning_records (company_id)",
+      "CREATE INDEX ix_learning_records_created_at ON learning_records (created_at)",
+      "CREATE INDEX ix_learning_records_engineer_id ON learning_records (engineer_id)",
+      "CREATE UNIQUE INDEX ix_learning_records_job_id ON learning_records (job_id)"
+    ]
+  },
+  {
+    "name": "photos",
+    "columns": [
+      "id",
+      "job_id",
+      "company_id",
+      "filename",
+      "original_name",
+      "phase",
+      "created_at"
+    ],
+    "sql": [
+      "\nCREATE TABLE photos (\n\tid VARCHAR(64) NOT NULL, \n\tjob_id VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\tfilename VARCHAR(255) NOT NULL, \n\toriginal_name VARCHAR(255) NOT NULL, \n\tphase VARCHAR(30) NOT NULL, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(job_id) REFERENCES jobs (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id)\n)\n\n",
+      "CREATE INDEX ix_photos_company_id ON photos (company_id)",
+      "CREATE INDEX ix_photos_job_id ON photos (job_id)"
+    ]
+  },
+  {
+    "name": "work_orders",
+    "columns": [
+      "id",
+      "company_id",
+      "customer_id",
+      "job_id",
+      "assigned_engineer_id",
+      "title",
+      "status",
+      "priority",
+      "scheduled_for",
+      "site_reference",
+      "notes",
+      "created_at"
+    ],
+    "sql": [
+      "\nCREATE TABLE work_orders (\n\tid VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\tcustomer_id VARCHAR(64), \n\tjob_id VARCHAR(64), \n\tassigned_engineer_id INTEGER, \n\ttitle VARCHAR(240) NOT NULL, \n\tstatus VARCHAR(40) NOT NULL, \n\tpriority VARCHAR(30) NOT NULL, \n\tscheduled_for VARCHAR(80) NOT NULL, \n\tsite_reference VARCHAR(160) NOT NULL, \n\tnotes TEXT NOT NULL, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id), \n\tFOREIGN KEY(customer_id) REFERENCES customers (id), \n\tFOREIGN KEY(job_id) REFERENCES jobs (id), \n\tFOREIGN KEY(assigned_engineer_id) REFERENCES users (id)\n)\n\n",
+      "CREATE INDEX ix_work_orders_assigned_engineer_id ON work_orders (assigned_engineer_id)",
+      "CREATE INDEX ix_work_orders_company_id ON work_orders (company_id)",
+      "CREATE INDEX ix_work_orders_created_at ON work_orders (created_at)",
+      "CREATE INDEX ix_work_orders_customer_id ON work_orders (customer_id)",
+      "CREATE INDEX ix_work_orders_job_id ON work_orders (job_id)",
+      "CREATE INDEX ix_work_orders_status ON work_orders (status)"
+    ]
+  }
+]

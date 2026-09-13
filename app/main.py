@@ -21,6 +21,8 @@ from .knowledge_library import list_guides, get_guide, search_guides, guides_for
 from .learning_engine import metrics as learning_metrics, patterns as learning_patterns
 from .commercial_ops import dashboard as commercial_dashboard
 from .audit import log as audit_log
+from .snapshots import capture as capture_snapshot, original as original_snapshot, serialise as snapshot_json
+from .migrations import require_current
 
 BASE = Path(__file__).resolve().parent
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(BASE/"uploads")))
@@ -33,7 +35,7 @@ app.mount("/static", StaticFiles(directory=BASE/"static"), name="static")
 
 @app.on_event("startup")
 def startup():
-    Base.metadata.create_all(engine)
+    require_current(engine)
 
 def user_dep(authorization: str = Header(default=""), db: Session = Depends(get_db)):
     return current_user(db, authorization)
@@ -313,8 +315,10 @@ def save_learning(job_id: str, data: LearningIn, user: User = Depends(user_dep),
         record=LearningRecord(id=str(uuid.uuid4()),job_id=job.id,company_id=job.company_id,engineer_id=job.engineer_id)
         db.add(record)
     if not existing:
-        record.predicted_diagnosis=job.diagnosis
-        record.predicted_confidence=job.confidence
+        snapshot=capture_snapshot(db,job,user.id)
+        predicted=json.loads(snapshot.payload_json)
+        record.predicted_diagnosis=predicted["diagnosis"]
+        record.predicted_confidence=predicted["confidence"]
     record.confirmed_diagnosis=data.confirmed_diagnosis
     record.actual_repair=data.actual_repair
     record.resolved=data.resolved
@@ -388,6 +392,7 @@ def create_job(data: JobIn, user: User = Depends(user_dep), db: Session = Depend
         signature=data.signature,approved_by_engineer=data.approved_by_engineer
     )
     db.add(job);db.flush()
+    capture_snapshot(db,job,user.id,data.diagnostic_answers,"server_diagnosis" if data.diagnostic_answers is not None else "engineer_entered")
     if work_order:
         work_order.job_id=job.id
         work_order.status="In Progress"
@@ -555,6 +560,7 @@ def edit_work_order(work_order_id:str,data:WorkOrderIn,user:User=Depends(require
 @app.patch("/api/jobs/{job_id}")
 def edit_job(job_id:str,data:JobIn,user:User=Depends(user_dep),db:Session=Depends(get_db)):
     job=db.get(Job,job_id);check_job(job,user)
+    capture_snapshot(db,job,user.id)
     apply_diagnosis(data)
     values=data.model_dump(exclude={"evidence","diagnostic_answers","work_order_id"})
     for key,value in values.items(): setattr(job,key,value)
@@ -566,6 +572,11 @@ def edit_job(job_id:str,data:JobIn,user:User=Depends(user_dep),db:Session=Depend
 def read_learning(job_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):
     job=db.get(Job,job_id);check_job(job,user)
     return db.scalar(select(LearningRecord).where(LearningRecord.job_id==job_id))
+
+@app.get("/api/jobs/{job_id}/diagnostic-snapshot")
+def read_diagnostic_snapshot(job_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):
+    job=db.get(Job,job_id);check_job(job,user)
+    return snapshot_json(original_snapshot(db,job_id))
 
 @app.get("/api/photos/{photo_id}/content")
 def photo_content(photo_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):

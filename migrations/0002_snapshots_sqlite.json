@@ -1,0 +1,7 @@
+[
+  "\nCREATE TABLE diagnostic_snapshots (\n\tid VARCHAR(64) NOT NULL, \n\tjob_id VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\tcaptured_by_id INTEGER NOT NULL, \n\tcaptured_at DATETIME NOT NULL, \n\torigin VARCHAR(40) NOT NULL, \n\tpayload_json TEXT NOT NULL, \n\tsha256 VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(job_id) REFERENCES jobs (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id), \n\tFOREIGN KEY(captured_by_id) REFERENCES users (id)\n)\n\n",
+  "CREATE INDEX ix_diagnostic_snapshots_company_id ON diagnostic_snapshots (company_id)",
+  "CREATE UNIQUE INDEX ix_diagnostic_snapshots_job_id ON diagnostic_snapshots (job_id)",
+  "CREATE TRIGGER snapshot_no_update BEFORE UPDATE ON diagnostic_snapshots BEGIN SELECT RAISE(ABORT, 'Diagnostic snapshots are immutable'); END",
+  "CREATE TRIGGER snapshot_no_delete BEFORE DELETE ON diagnostic_snapshots BEGIN SELECT RAISE(ABORT, 'Diagnostic snapshots are immutable'); END"
+]

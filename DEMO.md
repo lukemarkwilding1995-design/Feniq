@@ -48,6 +48,8 @@ Imported metadata is pending technical review. A source's presence in the librar
 
 ## Validation
 
+Database upgrades and the original-diagnosis record are described in [Migrations and snapshots](docs/MIGRATIONS_AND_SNAPSHOTS.md). Back up existing demo data before launching an upgraded version. For a normal (non-demo) deployment, run `python scripts/migrate.py` before starting the server.
+
 ```sh
 python -m unittest discover -s tests -v
 node --check app/static/app.js
