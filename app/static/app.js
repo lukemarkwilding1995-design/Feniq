@@ -405,7 +405,7 @@ const pages = {
         "Approvals",
         "Keep replacement parts, remakes and chargeable work accountable.",
       ) +
-      `<div class="cards">${as.length ? as.map((a) => `<article class="panel">${badge(a.status)}<h3 style="margin-top:18px">${esc(a.approval_type)}</h3><small>${esc(js.find((j) => j.id === a.job_id)?.customer || "Inspection")}</small><p>${esc(a.description)}</p><h2>${money(a.estimated_cost_pence)}</h2>${a.decision_note ? `<p class="notice">${esc(a.decision_note)}</p>` : ""}<div class="actions"><button data-report="${a.job_id}">View inspection</button>${user.role === "admin" && a.status === "Pending" ? `<button class="primary" data-decision="${a.id}">Review request</button>` : ""}</div></article>`).join("") : empty("No approval requests", "Open an inspection to request approval for parts or further work.")}</div>`
+      `<div class="cards">${as.length ? as.map((a) => `<article class="panel">${badge(a.status)}${a.scope_current === false ? '<p class="notice">Historical or changed findings. This decision does not authorise the current inspection. Reject pending requests and submit a new one.</p>' : ""}<h3 style="margin-top:18px">${esc(a.approval_type)}</h3><small>${esc(js.find((j) => j.id === a.job_id)?.customer || "Inspection")}</small><p>${esc(a.description)}</p><h2>${money(a.estimated_cost_pence)}</h2>${a.decision_note ? `<p class="notice">${esc(a.decision_note)}</p>` : ""}<div class="actions"><button data-report="${a.job_id}">View inspection</button>${user.role === "admin" && a.status === "Pending" ? `<button class="primary" data-decision="${a.id}">Review request</button>` : ""}</div></article>`).join("") : empty("No approval requests", "Open an inspection to request approval for parts or further work.")}</div>`
     );
   },
   async library() {
@@ -768,7 +768,7 @@ document.addEventListener("click", async (e) => {
   if (b.dataset.decision) {
     openModal(
       "Review commercial request",
-      `<form id="decisionForm" data-id="${b.dataset.decision}">${select("Decision", "status", ["Approved", "Rejected"])}${area("Decision note", "decision_note", "", "required")}<p class="error form-error" role="alert"></p><button class="primary">Save decision</button></form>`,
+      `<form id="decisionForm" data-id="${b.dataset.decision}"><p class="muted">Approval requires engineer review and unchanged inspection findings. Rejected requests can be replaced with a new request.</p>${select("Decision", "status", ["Approved", "Rejected"])}${area("Decision note", "decision_note", "", "required")}<p class="error form-error" role="alert"></p><button class="primary">Save decision</button></form>`,
     );
     return;
   }

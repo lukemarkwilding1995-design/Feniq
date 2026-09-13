@@ -147,3 +147,7 @@ Learning records must ultimately preserve an immutable snapshot of original faul
 4. Implement controlled-source review/versioning and verified evidence retrieval in diagnosis. Add official Internet source search with provenance after trusted retrieval is stable.
 5. Complete remaining Wave 1 gaps (governed learning, portal contributions, subscriptions and operational production requirements) in bounded cycles, meeting the definition of done.
 6. Progress modules 41–52 only when their prerequisites and Wave 1 foundations are stable. Their inclusion in architecture does not mean they are implemented.
+
+## Approval-gate update ? 13 September 2026
+
+Migration 0003 binds requests to technical findings. Engineer review, stale-scope rejection, conditional single decisions, completion/reopening transitions, retained-history deletion protection and admin-only commercial aggregates are implemented. Seventeen automated tests pass. This advances capabilities 4, 16, 18, 38 and 40; it does not complete the entire permission matrix, physical verification model or production governance. Next domain: shared Site/Product identity and Product Passports.

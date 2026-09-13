@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 from io import BytesIO
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.orm import Session
 
 from .db import Base, engine, get_db
@@ -23,6 +23,7 @@ from .commercial_ops import dashboard as commercial_dashboard
 from .audit import log as audit_log
 from .snapshots import capture as capture_snapshot, original as original_snapshot, serialise as snapshot_json
 from .migrations import require_current
+from .workflow_policy import scope as approval_scope, transition as check_transition
 
 BASE = Path(__file__).resolve().parent
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(BASE/"uploads")))
@@ -199,8 +200,8 @@ class WorkOrderIn(BaseModel):
 
 class ApprovalIn(BaseModel):
     job_id:str
-    approval_type:str
-    description:str
+    approval_type:str=Field(min_length=1, max_length=60)
+    description:str=Field(min_length=1)
     estimated_cost_pence:int=Field(default=0, ge=0)
 
 class ApprovalDecisionIn(BaseModel):
@@ -209,6 +210,7 @@ class ApprovalDecisionIn(BaseModel):
 
 @app.get("/api/commercial/dashboard")
 def commercial(user:User=Depends(user_dep),db:Session=Depends(get_db)):
+    if user.role!="admin": raise HTTPException(403,"Company commercial dashboard requires admin access")
     return commercial_dashboard(db,user.company_id)
 
 @app.get("/api/customers")
@@ -241,7 +243,7 @@ def update_work_order(work_order_id:str,status:str,user:User=Depends(user_dep),d
     w=db.get(WorkOrder,work_order_id)
     if not w or w.company_id!=user.company_id: raise HTTPException(404,"Work order not found")
     if user.role!="admin" and w.assigned_engineer_id!=user.id: raise HTTPException(403,"Not assigned to this work order")
-    if status not in ["New","Scheduled","In Progress","Awaiting Approval","Complete","Cancelled"]: raise HTTPException(400,"Invalid status")
+    check_transition(db,w,status,user)
     w.status=status
     audit_log(db,user.company_id,user.id,"work_order.status","work_order",w.id,{"status":status})
     db.commit();return {"ok":True}
@@ -250,12 +252,16 @@ def update_work_order(work_order_id:str,status:str,user:User=Depends(user_dep),d
 def approvals(user:User=Depends(user_dep),db:Session=Depends(get_db)):
     q=select(ApprovalRequest).where(ApprovalRequest.company_id==user.company_id)
     if user.role!="admin": q=q.where(ApprovalRequest.requested_by_id==user.id)
-    return db.scalars(q.order_by(ApprovalRequest.created_at.desc())).all()
+    rows=db.scalars(q.order_by(ApprovalRequest.created_at.desc())).all()
+    return [{"id":a.id,"job_id":a.job_id,"approval_type":a.approval_type,"description":a.description,
+             "estimated_cost_pence":a.estimated_cost_pence,"status":a.status,"decision_note":a.decision_note,
+             "created_at":a.created_at,"scope_current":bool(a.scope_sha256) and a.scope_sha256==approval_scope(db.get(Job,a.job_id)) if db.get(Job,a.job_id) else False}
+            for a in rows]
 
 @app.post("/api/approvals")
 def request_approval(data:ApprovalIn,user:User=Depends(user_dep),db:Session=Depends(get_db)):
     job=db.get(Job,data.job_id);check_job(job,user)
-    a=ApprovalRequest(id=str(uuid.uuid4()),company_id=user.company_id,requested_by_id=user.id,**data.model_dump())
+    a=ApprovalRequest(id=str(uuid.uuid4()),company_id=user.company_id,requested_by_id=user.id,scope_sha256=approval_scope(job),**data.model_dump())
     db.add(a)
     admins=db.scalars(select(User).where(User.company_id==user.company_id,User.role=="admin",User.active==True)).all()
     for admin in admins:
@@ -269,8 +275,16 @@ def decide_approval(approval_id:str,data:ApprovalDecisionIn,user:User=Depends(us
     if not a or a.company_id!=user.company_id: raise HTTPException(404,"Approval not found")
     if data.status not in ["Approved","Rejected"]: raise HTTPException(400,"Decision must be Approved or Rejected")
     if a.status != "Pending": raise HTTPException(409,"This request already has a decision")
+    job=db.get(Job,a.job_id)
+    if data.status=="Approved":
+        if not job or not job.approved_by_engineer: raise HTTPException(409,"Engineer review is required before authorising this request")
+        if not a.scope_sha256 or a.scope_sha256!=approval_scope(job): raise HTTPException(409,"The inspection findings changed or this is a legacy request. Reject it and submit a new request for the current findings")
+    conditions=[ApprovalRequest.id==a.id,ApprovalRequest.status=="Pending"]
+    if data.status=="Approved":
+        conditions.append(select(Job.id).where(Job.id==a.job_id,Job.updated_at==job.updated_at,Job.approved_by_engineer==True).exists())
+    result=db.execute(update(ApprovalRequest).where(*conditions).values(status=data.status,decision_by_id=user.id,decision_note=data.decision_note).execution_options(synchronize_session=False))
+    if result.rowcount!=1: raise HTTPException(409,"The request or inspection changed. Refresh before deciding")
     audit_log(db,user.company_id,user.id,"approval.decided","approval",a.id,{"status":data.status})
-    a.status=data.status;a.decision_by_id=user.id;a.decision_note=data.decision_note
     db.add(Notification(id=str(uuid.uuid4()),company_id=user.company_id,user_id=a.requested_by_id,title=f"{a.approval_type}: {data.status}",body=data.decision_note))
     db.commit();return {"ok":True}
 
@@ -383,6 +397,7 @@ def create_job(data: JobIn, user: User = Depends(user_dep), db: Session = Depend
         if not work_order or work_order.company_id != user.company_id: raise HTTPException(404,"Work order not found")
         if user.role != "admin" and work_order.assigned_engineer_id != user.id: raise HTTPException(403,"Work order is not assigned to you")
         if work_order.job_id: raise HTTPException(409,"This work order already has an inspection")
+        if work_order.status in {"Complete","Cancelled"}: raise HTTPException(409,"An administrator must reopen this work order before starting an inspection")
     job=Job(
         id=str(uuid.uuid4()), company_id=user.company_id, engineer_id=(work_order.assigned_engineer_id if work_order and work_order.assigned_engineer_id else user.id),
         customer=data.customer,reference=data.reference,product=data.product,system_name=data.system_name,
@@ -416,13 +431,19 @@ def one_job(job_id: str, user: User = Depends(user_dep), db: Session = Depends(g
 def approve(job_id: str, user: User = Depends(user_dep), db: Session = Depends(get_db)):
     job=db.get(Job,job_id); check_job(job,user)
     if job.engineer_id!=user.id and user.role!="admin": raise HTTPException(403,"Only job engineer/admin can approve")
-    job.approved_by_engineer=True;db.commit()
+    job.approved_by_engineer=True
+    audit_log(db,user.company_id,user.id,"inspection.reviewed","job",job.id)
+    db.commit()
     return {"ok":True}
 
 @app.delete("/api/jobs/{job_id}")
 def delete_job(job_id: str, user: User = Depends(user_dep), db: Session = Depends(get_db)):
     job=db.get(Job,job_id);check_job(job,user)
     if user.role!="admin" and job.engineer_id!=user.id: raise HTTPException(403)
+    from .models import DiagnosticSnapshot
+    for model in (DiagnosticSnapshot,LearningRecord,WorkOrder,ApprovalRequest):
+        if db.scalar(select(model.id).where(model.job_id==job.id)):
+            raise HTTPException(409,"This inspection has retained history or linked work. Deletion is blocked; archival is not yet available")
     photos=db.scalars(select(Photo).where(Photo.job_id==job.id)).all()
     for p in photos:
         try:(UPLOAD_DIR/p.filename).unlink()
@@ -543,6 +564,10 @@ def validate_work_order(data,user,db):
             if not entity or entity.company_id != user.company_id:
                 raise HTTPException(422,"Customer, inspection and engineer must belong to your company")
             if model is User and not entity.active: raise HTTPException(422,"Engineer is inactive")
+    if data.job_id:
+        job=db.get(Job,data.job_id)
+        if data.assigned_engineer_id!=job.engineer_id:
+            raise HTTPException(422,"The visit engineer must match the linked inspection engineer")
     if data.scheduled_for:
         from datetime import datetime
         try: datetime.fromisoformat(data.scheduled_for)
@@ -552,6 +577,8 @@ def validate_work_order(data,user,db):
 def edit_work_order(work_order_id:str,data:WorkOrderIn,user:User=Depends(require_admin),db:Session=Depends(get_db)):
     w=db.get(WorkOrder,work_order_id)
     if not w or w.company_id!=user.company_id: raise HTTPException(404,"Work order not found")
+    if w.status in {"Complete","Cancelled"}: raise HTTPException(409,"Reopen this work order before editing it")
+    if w.job_id and data.job_id!=w.job_id: raise HTTPException(409,"An existing inspection link cannot be replaced or removed")
     validate_work_order(data,user,db)
     for key,value in data.model_dump().items(): setattr(w,key,value)
     audit_log(db,user.company_id,user.id,"work_order.updated","work_order",w.id)
@@ -560,11 +587,17 @@ def edit_work_order(work_order_id:str,data:WorkOrderIn,user:User=Depends(require
 @app.patch("/api/jobs/{job_id}")
 def edit_job(job_id:str,data:JobIn,user:User=Depends(user_dep),db:Session=Depends(get_db)):
     job=db.get(Job,job_id);check_job(job,user)
+    if db.scalar(select(WorkOrder.id).where(WorkOrder.job_id==job.id,WorkOrder.status=="Complete")):
+        raise HTTPException(409,"An administrator must reopen the completed visit before editing its inspection")
+    old_scope=approval_scope(job)
+    old_service=(job.work_done,job.outcome,job.signature,job.engineer_notes)
     capture_snapshot(db,job,user.id)
     apply_diagnosis(data)
     values=data.model_dump(exclude={"evidence","diagnostic_answers","work_order_id"})
     for key,value in values.items(): setattr(job,key,value)
     job.evidence_json=json.dumps(data.evidence)
+    if old_scope!=approval_scope(job) or old_service!=(job.work_done,job.outcome,job.signature,job.engineer_notes):
+        job.approved_by_engineer=False
     audit_log(db,user.company_id,user.id,"inspection.updated","job",job.id)
     db.commit();db.refresh(job);return job_json(job,db)
 

@@ -127,6 +127,7 @@ class ApprovalRequest(Base):
     status: Mapped[str]=mapped_column(String(30),default="Pending",index=True)
     decision_by_id: Mapped[int|None]=mapped_column(ForeignKey("users.id"),nullable=True)
     decision_note: Mapped[str]=mapped_column(Text,default="")
+    scope_sha256: Mapped[str]=mapped_column(String(64),default="")
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now,index=True)
 
 class Notification(Base):

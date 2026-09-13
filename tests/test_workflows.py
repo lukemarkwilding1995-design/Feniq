@@ -43,6 +43,52 @@ class WorkflowTests(unittest.TestCase):
         self.assertIsNone(self.client.get('/api/company',headers=self.engineer).json()['invite_code'])
         self.assertEqual(self.client.post('/api/login',json={'email':'admin@example.com','password':'wrong'}).status_code,401)
         self.assertEqual(self.client.post('/api/register-company',json={'company_name':'  ','admin_name':'Admin','email':'bad','password':'password'}).status_code,422)
+        self.assertEqual(self.client.get('/api/commercial/dashboard',headers=self.engineer).status_code,403)
+
+    def test_approval_requires_review_and_current_scope(self):
+        job=self.job(diagnosis='Initial finding').json()
+        request=self.client.post('/api/approvals',headers=self.engineer,json={'job_id':job['id'],'approval_type':'Replacement','description':'Replace keep'}).json()
+        endpoint='/api/approvals/'+request['id']+'/decision'
+        self.assertEqual(self.client.post(endpoint,headers=self.admin,json={'status':'Approved'}).status_code,409)
+        self.client.patch('/api/jobs/'+job['id']+'/approve',headers=self.engineer)
+        job['diagnosis']='Changed finding';job['approved_by_engineer']=True
+        updated=self.client.patch('/api/jobs/'+job['id'],headers=self.engineer,json=job).json()
+        self.assertFalse(updated['approved_by_engineer'])
+        self.client.patch('/api/jobs/'+job['id']+'/approve',headers=self.engineer)
+        self.assertEqual(self.client.post(endpoint,headers=self.admin,json={'status':'Approved'}).status_code,409)
+        self.assertFalse(self.client.get('/api/approvals',headers=self.admin).json()[0]['scope_current'])
+        self.assertEqual(self.client.post(endpoint,headers=self.admin,json={'status':'Rejected'}).status_code,200)
+        fresh=self.client.post('/api/approvals',headers=self.engineer,json={'job_id':job['id'],'approval_type':'Replacement','description':'Reviewed new scope'}).json()
+        endpoint='/api/approvals/'+fresh['id']+'/decision'
+        self.assertEqual(self.client.post(endpoint,headers=self.admin,json={'status':'Approved'}).status_code,200)
+        self.assertEqual(self.client.post(endpoint,headers=self.admin,json={'status':'Rejected'}).status_code,409)
+
+    def test_completion_and_reopening_gates(self):
+        order=self.client.post('/api/work-orders',headers=self.admin,json={'title':'Service','assigned_engineer_id':self.engineer_id}).json()
+        endpoint='/api/work-orders/'+order['id']+'/status'
+        self.assertEqual(self.client.patch(endpoint+'?status=Complete',headers=self.engineer).status_code,409)
+        job=self.job(work_order_id=order['id']).json()
+        self.assertEqual(self.client.patch(endpoint+'?status=Complete',headers=self.engineer).status_code,409)
+        job['outcome']='Adjusted / Resolved'
+        self.client.patch('/api/jobs/'+job['id'],headers=self.engineer,json=job)
+        self.client.patch('/api/jobs/'+job['id']+'/approve',headers=self.engineer)
+        pending=self.client.post('/api/approvals',headers=self.engineer,json={'job_id':job['id'],'approval_type':'Work','description':'Decision pending'}).json()
+        self.assertEqual(self.client.patch(endpoint+'?status=Complete',headers=self.engineer).status_code,409)
+        self.client.post('/api/approvals/'+pending['id']+'/decision',headers=self.admin,json={'status':'Rejected'})
+        self.assertEqual(self.client.patch(endpoint+'?status=Complete',headers=self.engineer).status_code,200)
+        self.assertEqual(self.client.patch('/api/jobs/'+job['id'],headers=self.engineer,json=job).status_code,409)
+        self.assertEqual(self.client.patch(endpoint+'?status=In%20Progress',headers=self.engineer).status_code,403)
+        self.assertEqual(self.client.patch(endpoint+'?status=In%20Progress',headers=self.admin).status_code,200)
+        linked={**order,'job_id':job['id'],'assigned_engineer_id':None}
+        self.assertEqual(self.client.patch('/api/work-orders/'+order['id'],headers=self.admin,json=linked).status_code,422)
+        order['job_id']=None
+        self.assertEqual(self.client.patch('/api/work-orders/'+order['id'],headers=self.admin,json=order).status_code,409)
+
+    def test_retained_inspection_cannot_be_deleted(self):
+        job=self.job().json()
+        self.assertEqual(self.client.delete('/api/jobs/'+job['id'],headers=self.engineer).status_code,409)
+        self.assertEqual(self.client.get('/api/jobs/'+job['id'],headers=self.engineer).status_code,200)
+        self.assertTrue(self.client.get('/api/jobs/'+job['id']+'/diagnostic-snapshot',headers=self.engineer).json()['integrity_valid'])
 
     def test_snapshot_survives_edits_and_learning(self):
         answers={'camb_catching':True,'works_open':True,'compression_even':'No','witness_marks':True,'keep_position_verified':True}
@@ -104,6 +150,7 @@ class WorkflowTests(unittest.TestCase):
         j['outcome']='Adjusted / Resolved'
         self.assertEqual(self.client.patch('/api/jobs/'+j['id'],headers=self.engineer,json=j).status_code,200)
         self.assertEqual(len(self.client.get('/api/jobs',headers=self.engineer).json()),1)
+        self.client.patch('/api/jobs/'+j['id']+'/approve',headers=self.engineer)
         a=self.client.post('/api/approvals',headers=self.engineer,json={'job_id':j['id'],'approval_type':'Replacement part','description':'Keep required','estimated_cost_pence':4500}).json()
         self.assertEqual(self.client.post('/api/approvals/'+a['id']+'/decision',headers=self.engineer,json={'status':'Approved'}).status_code,403)
         self.assertEqual(self.client.post('/api/approvals/'+a['id']+'/decision',headers=self.admin,json={'status':'Approved','decision_note':'Proceed'}).status_code,200)
