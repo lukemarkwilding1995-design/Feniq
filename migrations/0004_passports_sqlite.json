@@ -1,0 +1,17 @@
+[
+  "\nCREATE TABLE sites (\n\tid VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\tcustomer_id VARCHAR(64) NOT NULL, \n\tname VARCHAR(200) NOT NULL, \n\taddress TEXT NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id), \n\tFOREIGN KEY(customer_id) REFERENCES customers (id)\n)\n\n",
+  "CREATE INDEX ix_sites_company_id ON sites (company_id)",
+  "CREATE INDEX ix_sites_customer_id ON sites (customer_id)",
+  "\nCREATE TABLE product_passports (\n\tid VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\tsite_id VARCHAR(64) NOT NULL, \n\tlabel VARCHAR(200) NOT NULL, \n\tproduct VARCHAR(100) NOT NULL, \n\tmanufacturer VARCHAR(180) NOT NULL, \n\tsystem_name VARCHAR(180) NOT NULL, \n\tserial_number VARCHAR(180) NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id), \n\tFOREIGN KEY(site_id) REFERENCES sites (id)\n)\n\n",
+  "CREATE INDEX ix_product_passports_company_id ON product_passports (company_id)",
+  "CREATE INDEX ix_product_passports_site_id ON product_passports (site_id)",
+  "\nCREATE TABLE passport_events (\n\tid VARCHAR(64) NOT NULL, \n\tpassport_id VARCHAR(64) NOT NULL, \n\trecorded_by_id INTEGER NOT NULL, \n\tkind VARCHAR(40) NOT NULL, \n\toccurred_on VARCHAR(10) NOT NULL, \n\tnote TEXT NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(passport_id) REFERENCES product_passports (id), \n\tFOREIGN KEY(recorded_by_id) REFERENCES users (id)\n)\n\n",
+  "CREATE INDEX ix_passport_events_passport_id ON passport_events (passport_id)",
+  "\nCREATE TABLE passport_inspections (\n\tid VARCHAR(64) NOT NULL, \n\tpassport_id VARCHAR(64) NOT NULL, \n\tjob_id VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(passport_id) REFERENCES product_passports (id), \n\tFOREIGN KEY(job_id) REFERENCES jobs (id)\n)\n\n",
+  "CREATE UNIQUE INDEX ix_passport_inspections_job_id ON passport_inspections (job_id)",
+  "CREATE INDEX ix_passport_inspections_passport_id ON passport_inspections (passport_id)",
+  "CREATE TRIGGER passport_events_no_update BEFORE UPDATE ON passport_events BEGIN SELECT RAISE(ABORT, 'Passport history is immutable'); END",
+  "CREATE TRIGGER passport_events_no_delete BEFORE DELETE ON passport_events BEGIN SELECT RAISE(ABORT, 'Passport history is immutable'); END",
+  "CREATE TRIGGER passport_inspections_no_update BEFORE UPDATE ON passport_inspections BEGIN SELECT RAISE(ABORT, 'Passport history is immutable'); END",
+  "CREATE TRIGGER passport_inspections_no_delete BEFORE DELETE ON passport_inspections BEGIN SELECT RAISE(ABORT, 'Passport history is immutable'); END"
+]

@@ -45,6 +45,41 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/register-company',json={'company_name':'  ','admin_name':'Admin','email':'bad','password':'password'}).status_code,422)
         self.assertEqual(self.client.get('/api/commercial/dashboard',headers=self.engineer).status_code,403)
 
+    def passport(self):
+        customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Passport customer'}).json()
+        site=self.client.post('/api/sites',headers=self.admin,json={'customer_id':customer['id'],'name':'Site A','address':'Fictional site'}).json()
+        return self.client.post('/api/passports',headers=self.admin,json={'site_id':site['id'],'label':'Kitchen window','product':'Window'}).json()
+
+    def test_passport_lifecycle_and_retained_links(self):
+        product=self.passport();url='/api/passports/'+product['id']
+        job=self.job(reference='PASSPORT-TEST').json()
+        self.assertEqual(self.client.post(url+'/inspections',headers=self.engineer,json={'job_id':job['id']}).status_code,200)
+        self.assertEqual(self.client.post(url+'/inspections',headers=self.engineer,json={'job_id':job['id']}).status_code,200)
+        self.assertEqual(self.client.post(url+'/events',headers=self.engineer,json={'kind':'Service note','occurred_on':'2026-09-13','note':'Adjusted and checked operation'}).status_code,200)
+        detail=self.client.get(url,headers=self.engineer).json()
+        self.assertEqual(len(detail['events']),3)
+        self.assertEqual(detail['inspections'][0]['id'],job['id'])
+        colleague=self.client.post('/api/join-company',json={'invite_code':self.invite,'name':'Other engineer','email':'colleague@example.com','password':'strong-password'}).json()
+        other_headers={'Authorization':'Bearer '+colleague['token']}
+        self.assertEqual(self.client.get(url,headers=other_headers).json()['inspections'],[])
+        self.assertEqual(self.client.post(url+'/inspections',headers=other_headers,json={'job_id':job['id']}).status_code,403)
+        another=self.passport()
+        self.assertEqual(self.client.post('/api/passports/'+another['id']+'/inspections',headers=self.admin,json={'job_id':job['id']}).status_code,409)
+        for table in ('passport_events','passport_inspections'):
+            with self.assertRaises(IntegrityError):
+                with engine.begin() as connection: connection.execute(text('DELETE FROM '+table))
+
+    def test_passport_company_and_admin_boundaries(self):
+        product=self.passport();url='/api/passports/'+product['id']
+        self.assertEqual(self.client.post('/api/passports',headers=self.engineer,json={'site_id':product['site_id'],'label':'Other','product':'Window'}).status_code,403)
+        other=self.client.post('/api/register-company',json={'company_name':'External','admin_name':'External','email':'external@example.com','password':'strong-password'}).json()
+        headers={'Authorization':'Bearer '+other['token']}
+        self.assertEqual(self.client.get('/api/passports',headers=headers).json(),[])
+        self.assertEqual(self.client.get(url,headers=headers).status_code,404)
+        self.assertEqual(self.client.post('/api/passports',headers=headers,json={'site_id':product['site_id'],'label':'Invalid','product':'Door'}).status_code,404)
+        self.assertEqual(self.client.post(url+'/events',headers=headers,json={'kind':'Service note','occurred_on':'2026-09-13','note':'Denied'}).status_code,404)
+        self.assertEqual(self.client.post(url+'/events',headers=self.admin,json={'kind':'Service note','occurred_on':'invalid','note':'Invalid date'}).status_code,422)
+
     def test_approval_requires_review_and_current_scope(self):
         job=self.job(diagnosis='Initial finding').json()
         request=self.client.post('/api/approvals',headers=self.engineer,json={'job_id':job['id'],'approval_type':'Replacement','description':'Replace keep'}).json()

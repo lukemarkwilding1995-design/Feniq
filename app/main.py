@@ -441,7 +441,8 @@ def delete_job(job_id: str, user: User = Depends(user_dep), db: Session = Depend
     job=db.get(Job,job_id);check_job(job,user)
     if user.role!="admin" and job.engineer_id!=user.id: raise HTTPException(403)
     from .models import DiagnosticSnapshot
-    for model in (DiagnosticSnapshot,LearningRecord,WorkOrder,ApprovalRequest):
+    from .passports import PassportInspection
+    for model in (DiagnosticSnapshot,LearningRecord,WorkOrder,ApprovalRequest,PassportInspection):
         if db.scalar(select(model.id).where(model.job_id==job.id)):
             raise HTTPException(409,"This inspection has retained history or linked work. Deletion is blocked; archival is not yet available")
     photos=db.scalars(select(Photo).where(Photo.job_id==job.id)).all()
@@ -647,3 +648,6 @@ def demo_session(role:Literal["admin","engineer"]="admin",db:Session=Depends(get
     from .demo import create_demo
     demo_user=create_demo(db,role)
     return {"token":create_token(demo_user),"user":user_json(demo_user)}
+
+from .passports import register as register_passports
+register_passports(app,user_dep,check_job)
