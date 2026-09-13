@@ -1,9 +1,12 @@
 import os, json, uuid, secrets
 from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Form
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, Field, field_validator
+from typing import Literal
+from io import BytesIO
+from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
@@ -24,9 +27,9 @@ UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(BASE/"uploads")))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_MB","10"))*1024*1024
 
-app = FastAPI(title="FenIQ V5", version="5.0")
+app = FastAPI(title="FenIQ", version="1.0-demo")
 app.mount("/static", StaticFiles(directory=BASE/"static"), name="static")
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
 
 @app.on_event("startup")
 def startup():
@@ -44,24 +47,36 @@ def require_admin(user: User = Depends(user_dep)):
 def home():
     return FileResponse(BASE/"static"/"index.html")
 
-class CompanyRegister(BaseModel):
+class AccountInput(BaseModel):
+    @field_validator("*", mode="before")
+    @classmethod
+    def trim_fields(cls, value, info):
+        if isinstance(value, str) and info.field_name != "password":
+            value = value.strip()
+            if not value:
+                raise ValueError("This field is required")
+            if info.field_name == "email" and ("@" not in value or "." not in value.split("@")[-1]):
+                raise ValueError("Enter a valid email address")
+        return value
+
+class CompanyRegister(AccountInput):
     company_name: str
     admin_name: str
     email: str
     password: str
 
-class JoinCompany(BaseModel):
+class JoinCompany(AccountInput):
     invite_code: str
     name: str
     email: str
     password: str
 
-class Login(BaseModel):
+class Login(AccountInput):
     email: str
     password: str
 
 class JobIn(BaseModel):
-    customer: str=""
+    customer: str=Field(min_length=1, max_length=255)
     reference: str=""
     product: str=""
     system_name: str=""
@@ -69,7 +84,9 @@ class JobIn(BaseModel):
     module: str=""
     diagnosis: str=""
     confidence: int=0
-    evidence: list[str]=[]
+    evidence: list[str]=Field(default_factory=list)
+    diagnostic_answers: dict | None=None
+    work_order_id: str | None=None
     recommendation: str=""
     work_done: str=""
     parts_required: str=""
@@ -102,7 +119,7 @@ def join_company(data: JoinCompany, db: Session = Depends(get_db)):
 @app.post("/api/login")
 def login(data: Login, db: Session = Depends(get_db)):
     user=db.scalar(select(User).where(User.email==data.email.lower()))
-    if not user or not verify_password(data.password,user.password_hash): raise HTTPException(401,"Invalid login")
+    if not user or not user.active or not verify_password(data.password,user.password_hash): raise HTTPException(401,"Invalid login")
     return {"token":create_token(user),"user":user_json(user)}
 
 def user_json(u):
@@ -162,18 +179,18 @@ def permissions(user:User=Depends(user_dep)):
     return {"role":"engineer","permissions":["jobs.own","work_orders.assigned","approvals.request","learning.submit","guides.read","diagnostics.run"]}
 
 class CustomerIn(BaseModel):
-    name:str
+    name:str=Field(min_length=1, max_length=200)
     contact_name:str=""
     email:str=""
     phone:str=""
     address:str=""
 
 class WorkOrderIn(BaseModel):
-    title:str
+    title:str=Field(min_length=1, max_length=240)
     customer_id:str|None=None
     job_id:str|None=None
     assigned_engineer_id:int|None=None
-    priority:str="Normal"
+    priority:Literal["Low", "Normal", "High", "Urgent"]="Normal"
     scheduled_for:str=""
     site_reference:str=""
     notes:str=""
@@ -182,7 +199,7 @@ class ApprovalIn(BaseModel):
     job_id:str
     approval_type:str
     description:str
-    estimated_cost_pence:int=0
+    estimated_cost_pence:int=Field(default=0, ge=0)
 
 class ApprovalDecisionIn(BaseModel):
     status:str
@@ -209,10 +226,12 @@ def work_orders(user:User=Depends(user_dep),db:Session=Depends(get_db)):
 @app.post("/api/work-orders")
 def create_work_order(data:WorkOrderIn,user:User=Depends(user_dep),db:Session=Depends(get_db)):
     if user.role!="admin": raise HTTPException(403,"Admin required")
+    validate_work_order(data, user, db)
     w=WorkOrder(id=str(uuid.uuid4()),company_id=user.company_id,status="Scheduled" if data.scheduled_for else "New",**data.model_dump())
     db.add(w)
     if w.assigned_engineer_id:
         db.add(Notification(id=str(uuid.uuid4()),company_id=user.company_id,user_id=w.assigned_engineer_id,title="New work order assigned",body=w.title))
+    audit_log(db,user.company_id,user.id,"work_order.created","work_order",w.id)
     db.commit();db.refresh(w);return w
 
 @app.patch("/api/work-orders/{work_order_id}/status")
@@ -221,7 +240,9 @@ def update_work_order(work_order_id:str,status:str,user:User=Depends(user_dep),d
     if not w or w.company_id!=user.company_id: raise HTTPException(404,"Work order not found")
     if user.role!="admin" and w.assigned_engineer_id!=user.id: raise HTTPException(403,"Not assigned to this work order")
     if status not in ["New","Scheduled","In Progress","Awaiting Approval","Complete","Cancelled"]: raise HTTPException(400,"Invalid status")
-    w.status=status;db.commit();return {"ok":True}
+    w.status=status
+    audit_log(db,user.company_id,user.id,"work_order.status","work_order",w.id,{"status":status})
+    db.commit();return {"ok":True}
 
 @app.get("/api/approvals")
 def approvals(user:User=Depends(user_dep),db:Session=Depends(get_db)):
@@ -245,6 +266,8 @@ def decide_approval(approval_id:str,data:ApprovalDecisionIn,user:User=Depends(us
     a=db.get(ApprovalRequest,approval_id)
     if not a or a.company_id!=user.company_id: raise HTTPException(404,"Approval not found")
     if data.status not in ["Approved","Rejected"]: raise HTTPException(400,"Decision must be Approved or Rejected")
+    if a.status != "Pending": raise HTTPException(409,"This request already has a decision")
+    audit_log(db,user.company_id,user.id,"approval.decided","approval",a.id,{"status":data.status})
     a.status=data.status;a.decision_by_id=user.id;a.decision_note=data.decision_note
     db.add(Notification(id=str(uuid.uuid4()),company_id=user.company_id,user_id=a.requested_by_id,title=f"{a.approval_type}: {data.status}",body=data.decision_note))
     db.commit();return {"ok":True}
@@ -289,8 +312,9 @@ def save_learning(job_id: str, data: LearningIn, user: User = Depends(user_dep),
     else:
         record=LearningRecord(id=str(uuid.uuid4()),job_id=job.id,company_id=job.company_id,engineer_id=job.engineer_id)
         db.add(record)
-    record.predicted_diagnosis=job.diagnosis
-    record.predicted_confidence=job.confidence
+    if not existing:
+        record.predicted_diagnosis=job.diagnosis
+        record.predicted_confidence=job.confidence
     record.confirmed_diagnosis=data.confirmed_diagnosis
     record.actual_repair=data.actual_repair
     record.resolved=data.resolved
@@ -308,7 +332,7 @@ def get_learning_metrics(user: User = Depends(user_dep), db: Session = Depends(g
 
 @app.get("/api/learning/patterns")
 def get_learning_patterns(user: User = Depends(user_dep), db: Session = Depends(get_db)):
-    return learning_patterns(db,user.company_id)
+    return learning_patterns(db,user.company_id,None if user.role=="admin" else user.id)
 
 class ManufacturerRouteIn(BaseModel):
     manufacturer_id: str
@@ -341,21 +365,34 @@ def diagnostics_catalogue(user: User = Depends(user_dep)):
 @app.post("/api/diagnostics/run")
 def diagnostics_run(data: DiagnoseIn, user: User = Depends(user_dep)):
     try:
+        validate_answers(data.module_id, data.answers)
         return run_diagnosis(data.module_id, data.answers)
     except KeyError:
         raise HTTPException(404, "Diagnostic module not found")
 
 @app.post("/api/jobs")
 def create_job(data: JobIn, user: User = Depends(user_dep), db: Session = Depends(get_db)):
+    apply_diagnosis(data)
+    work_order = None
+    if data.work_order_id:
+        work_order = db.get(WorkOrder, data.work_order_id)
+        if not work_order or work_order.company_id != user.company_id: raise HTTPException(404,"Work order not found")
+        if user.role != "admin" and work_order.assigned_engineer_id != user.id: raise HTTPException(403,"Work order is not assigned to you")
+        if work_order.job_id: raise HTTPException(409,"This work order already has an inspection")
     job=Job(
-        id=str(uuid.uuid4()), company_id=user.company_id, engineer_id=user.id,
+        id=str(uuid.uuid4()), company_id=user.company_id, engineer_id=(work_order.assigned_engineer_id if work_order and work_order.assigned_engineer_id else user.id),
         customer=data.customer,reference=data.reference,product=data.product,system_name=data.system_name,
         fault=data.fault,module=data.module,diagnosis=data.diagnosis,confidence=max(0,min(100,data.confidence)),
         evidence_json=json.dumps(data.evidence),recommendation=data.recommendation,work_done=data.work_done,
         parts_required=data.parts_required,outcome=data.outcome,engineer_notes=data.engineer_notes,
         signature=data.signature,approved_by_engineer=data.approved_by_engineer
     )
-    db.add(job);db.commit();db.refresh(job)
+    db.add(job);db.flush()
+    if work_order:
+        work_order.job_id=job.id
+        work_order.status="In Progress"
+    audit_log(db,user.company_id,user.id,"inspection.created","job",job.id)
+    db.commit();db.refresh(job)
     return job_json(job, db)
 
 @app.get("/api/jobs")
@@ -403,7 +440,7 @@ def job_json(j,db):
         "outcome":j.outcome,"engineer_notes":j.engineer_notes,"signature":j.signature,
         "approved_by_engineer":j.approved_by_engineer,
         "engineer":{"id":j.engineer.id,"name":j.engineer.name},
-        "photos":[{"id":p.id,"url":f"/uploads/{p.filename}","phase":p.phase,"name":p.original_name} for p in photos]
+        "photos":[{"id":p.id,"url":f"/api/photos/{p.id}/content","phase":p.phase,"name":p.original_name} for p in photos]
     }
 
 @app.post("/api/jobs/{job_id}/photos")
@@ -411,13 +448,20 @@ async def upload_photo(job_id:str, phase:str=Form("before"), file:UploadFile=Fil
     job=db.get(Job,job_id);check_job(job,user)
     ext=Path(file.filename or "").suffix.lower()
     if ext not in {".jpg",".jpeg",".png",".webp"}: raise HTTPException(400,"Use JPG, PNG or WEBP")
-    data=await file.read()
+    if phase not in {"before","after"}: raise HTTPException(400,"Invalid photo phase")
+    data=await file.read(MAX_UPLOAD+1)
     if len(data)>MAX_UPLOAD: raise HTTPException(400,"Image exceeds upload limit")
+    try:
+        with Image.open(BytesIO(data)) as img:
+            if img.width * img.height > 25_000_000: raise ValueError("Image too large")
+            img.verify()
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+        raise HTTPException(400,"Upload a valid image up to 25 megapixels")
     pid=str(uuid.uuid4());filename=pid+ext
     (UPLOAD_DIR/filename).write_bytes(data)
     p=Photo(id=pid,job_id=job.id,company_id=user.company_id,filename=filename,original_name=file.filename or "",phase=phase)
     db.add(p);db.commit()
-    return {"id":pid,"url":f"/uploads/{filename}"}
+    return {"id":pid,"url":f"/api/photos/{pid}/content"}
 
 @app.post("/api/photos/{photo_id}/analyse")
 def analyse_photo(photo_id:str, user:User=Depends(user_dep), db:Session=Depends(get_db)):
@@ -450,3 +494,112 @@ def analytics(user:User=Depends(user_dep),db:Session=Depends(get_db)):
         "top_diagnosis":top(counts_diag),
         "top_product":top(counts_prod)
     }
+
+
+def validate_answers(module_id, answers):
+    from .diagnostics import MODULES
+    import math
+    module = MODULES.get(module_id)
+    if not module: raise KeyError(module_id)
+    for check in module["checks"]:
+        value = answers.get(check["key"])
+        if value is None:
+            if check.get("required"): raise HTTPException(422, f"Complete: {check['label']}")
+            continue
+        valid = True
+        if check["type"] == "bool": valid = type(value) is bool
+        elif check["type"] == "number": valid = type(value) in (int,float) and math.isfinite(value) and value >= 0
+        elif check["type"] == "choice": valid = value in check["options"]
+        if not valid: raise HTTPException(422, f"Invalid answer: {check['label']}")
+
+def apply_diagnosis(data):
+    if data.diagnostic_answers is None: return
+    try:
+        validate_answers(data.module, data.diagnostic_answers)
+        result = run_diagnosis(data.module, data.diagnostic_answers)
+    except KeyError:
+        raise HTTPException(422,"Unknown diagnostic module")
+    data.diagnosis=result["title"]
+    data.confidence=result["confidence"]
+    from .diagnostics import MODULES
+    recorded=[]
+    for check in MODULES[data.module]["checks"]:
+        if check["key"] in data.diagnostic_answers:
+            value=data.diagnostic_answers[check["key"]]
+            if type(value) is bool: value="Yes" if value else "No"
+            recorded.append(f"{check['label']}: {value}{' '+check['unit'] if check.get('unit') else ''}")
+    data.evidence=result["evidence"]+recorded
+    data.recommendation=result["recommendation"]
+
+def validate_work_order(data,user,db):
+    for model, identifier in [(Customer,data.customer_id),(Job,data.job_id),(User,data.assigned_engineer_id)]:
+        if identifier is not None:
+            entity=db.get(model,identifier)
+            if not entity or entity.company_id != user.company_id:
+                raise HTTPException(422,"Customer, inspection and engineer must belong to your company")
+            if model is User and not entity.active: raise HTTPException(422,"Engineer is inactive")
+    if data.scheduled_for:
+        from datetime import datetime
+        try: datetime.fromisoformat(data.scheduled_for)
+        except ValueError: raise HTTPException(422,"Enter a valid scheduled date and time")
+
+@app.patch("/api/work-orders/{work_order_id}")
+def edit_work_order(work_order_id:str,data:WorkOrderIn,user:User=Depends(require_admin),db:Session=Depends(get_db)):
+    w=db.get(WorkOrder,work_order_id)
+    if not w or w.company_id!=user.company_id: raise HTTPException(404,"Work order not found")
+    validate_work_order(data,user,db)
+    for key,value in data.model_dump().items(): setattr(w,key,value)
+    audit_log(db,user.company_id,user.id,"work_order.updated","work_order",w.id)
+    db.commit();db.refresh(w);return w
+
+@app.patch("/api/jobs/{job_id}")
+def edit_job(job_id:str,data:JobIn,user:User=Depends(user_dep),db:Session=Depends(get_db)):
+    job=db.get(Job,job_id);check_job(job,user)
+    apply_diagnosis(data)
+    values=data.model_dump(exclude={"evidence","diagnostic_answers","work_order_id"})
+    for key,value in values.items(): setattr(job,key,value)
+    job.evidence_json=json.dumps(data.evidence)
+    audit_log(db,user.company_id,user.id,"inspection.updated","job",job.id)
+    db.commit();db.refresh(job);return job_json(job,db)
+
+@app.get("/api/jobs/{job_id}/learning")
+def read_learning(job_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):
+    job=db.get(Job,job_id);check_job(job,user)
+    return db.scalar(select(LearningRecord).where(LearningRecord.job_id==job_id))
+
+@app.get("/api/photos/{photo_id}/content")
+def photo_content(photo_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):
+    photo=db.get(Photo,photo_id)
+    if not photo: raise HTTPException(404,"Photo not found")
+    check_job(db.get(Job,photo.job_id),user)
+    path=UPLOAD_DIR/photo.filename
+    if not path.is_file(): raise HTTPException(404,"Photo file not found")
+    return FileResponse(path,headers={"Cache-Control":"private, no-store"})
+
+@app.get("/api/config")
+def client_config():
+    return {"demo_enabled":os.getenv("FENIQ_DEMO","0")=="1","vision_enabled":bool(os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_VISION_MODEL"))}
+
+@app.get("/api/documents")
+def technical_documents(q:str="",category:str="",system:str="",manufacturer:str="",user:User=Depends(user_dep)):
+    from .documents import catalogue
+    return catalogue(user.company_id,q,category,system,manufacturer)
+
+@app.get("/api/documents/{document_id}/file")
+def technical_document_file(document_id:str,user:User=Depends(user_dep)):
+    from .documents import document_file
+    path,doc=document_file(user.company_id,document_id)
+    media_type={'.pdf':'application/pdf','.mp4':'video/mp4','.mov':'video/quicktime','.webm':'video/webm'}.get(path.suffix.lower(),'application/octet-stream')
+    return FileResponse(path,media_type=media_type,filename=doc['source_filename'],content_disposition_type="inline",headers={"Cache-Control":"private, no-store"})
+
+@app.get("/api/documents/{document_id}/pages/{page_number}")
+def technical_document_page(document_id:str,page_number:int,user:User=Depends(user_dep)):
+    from .documents import page_image
+    return Response(page_image(user.company_id,document_id,page_number),media_type='image/png',headers={"Cache-Control":"private, no-store"})
+
+@app.post("/api/demo")
+def demo_session(role:Literal["admin","engineer"]="admin",db:Session=Depends(get_db)):
+    if os.getenv("FENIQ_DEMO","0")!="1": raise HTTPException(404,"Not found")
+    from .demo import create_demo
+    demo_user=create_demo(db,role)
+    return {"token":create_token(demo_user),"user":user_json(demo_user)}

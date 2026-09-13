@@ -4,7 +4,7 @@ from fastapi import HTTPException, Header
 from sqlalchemy.orm import Session
 from .models import User
 
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-change-this")
+SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_urlsafe(48)
 ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "480"))
 
 def hash_password(password: str) -> str:

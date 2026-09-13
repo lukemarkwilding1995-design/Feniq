@@ -1,96 +1,1188 @@
-let token=localStorage.getItem("feniq_token")||"",user=null,diag=null,currentJob=null;
-const $=id=>document.getElementById(id);
-const modules={
-"French Door Clearance":{fields:[["Top clearance (mm)","number","top","1"],["Bottom clearance (mm)","number","bottom","0"],["Mullion sightline (mm)","number","sight","2"],["Hinge adjustment at limit?","select","hinge","Yes|No"],["Frame level, square and plumb?","select","square","Yes|No"]],run:v=>{let s=45,e=[];if(+v.top<=2){s+=12;e.push(`Top clearance ${v.top} mm`)}if(+v.bottom<=1){s+=16;e.push(`Bottom clearance ${v.bottom} mm`)}if(+v.sight<6){s+=10;e.push(`Mullion sightline ${v.sight} mm`)}if(v.hinge==="Yes"){s+=12;e.push("Hinge adjustment at limit")}if(v.square==="Yes"){s+=7;e.push("Frame reported level, square and plumb")}let x=v.hinge==="Yes"&&(+v.top<=2||+v.bottom<=1)&&v.square==="Yes";return{title:x?"Oversized sash / insufficient manufacturing clearance":"Sash alignment / adjustment required",score:Math.min(96,s),evidence:e,recommendation:x?"Verify sash and frame sizes. Consider corrected replacement sash only after engineer approval.":"Carry out controlled adjustment and toe-and-heel checks before considering a remake.",steps:["Confirm frame geometry","Measure top/bottom clearances","Check mullion sightline","Confirm hinge range","Check glass packing","Record dimensions before remake decision"]}}},
-"Locking Camb / Keep":{fields:[["Camb catching frame/keep?","select","catch","Yes|No"],["Handle stiff under load?","select","stiff","Yes|No"],["Lock free with sash open?","select","open","Yes|No"]],run:v=>{let s=55,e=[];if(v.catch==="Yes"){s+=15;e.push("Camb / keep catching")}if(v.stiff==="Yes"){s+=10;e.push("Handle stiff under load")}if(v.open==="Yes"){s+=10;e.push("Mechanism free when sash open")}return{title:v.open==="Yes"?"Keep / alignment issue":"Possible mechanism fault",score:Math.min(94,s),evidence:e,recommendation:"Check locking-point alignment and mechanism before replacing hardware.",steps:["Test open","Inspect witness marks","Check camb eccentric","Check keep position","Check compression","Retest"]}}},
-"Toe & Heel":{fields:[["Handle side dropped?","select","drop","Yes|No"],["Load-bearing packers correct?","select","pack","Yes|No"]],run:v=>({title:"Toe-and-heel correction likely required",score:v.drop==="Yes"&&v.pack==="No"?92:72,evidence:[v.drop==="Yes"?"Handle-side drop reported":"No handle-side drop reported",v.pack==="No"?"Packing requires correction":"Packing reported correct"],recommendation:"Correct glazing packer arrangement and re-check sash diagonal and clearances.",steps:["Support sash","Remove beads","Check packers","Correct toe-and-heel","Refit","Test"]})},
-"Gearbox / Multipoint Lock":{fields:[["Handle moves but locking points do not?","select","drive","Yes|No"],["Mechanism clunky?","select","clunky","Yes|No"],["Lock works with sash open?","select","open","Yes|No"]],run:v=>{let fail=v.drive==="Yes"||v.open==="No";return{title:fail?"Likely gearbox / multipoint mechanism failure":"Likely alignment / keep issue",score:fail?92:76,evidence:[v.drive==="Yes"?"Drive not operating locking points":"Drive operates",v.clunky==="Yes"?"Mechanism clunky":"No clunk reported",v.open==="No"?"Fault persists open":"Operates open"],recommendation:fail?"Confirm exact lock specification before replacement.":"Correct alignment before replacing mechanism.",steps:["Test open","Inspect gearbox","Inspect extensions","Check keeps","Confirm replacement specification"]}}},
-"Gasket / Compression":{fields:[["Visible gasket shrinkage?","select","shrink","Yes|No"],["Gaps at mitres?","select","mitre","Yes|No"],["Compression even?","select","comp","Yes|No"]],run:v=>({title:"Gasket / compression fault",score:(v.shrink==="Yes"||v.mitre==="Yes")?90:72,evidence:[v.shrink==="Yes"?"Visible shrinkage":"No visible shrinkage",v.mitre==="Yes"?"Mitre gaps":"No mitre gaps",v.comp==="No"?"Uneven compression":"Compression reported even"],recommendation:"Refit or replace affected gasket and verify locking compression.",steps:["Inspect perimeter","Check mitres","Check compression","Replace/refit","Retest"]})},
-"Friction Stay / Hinge":{fields:[["Sash catching?","select","catch","Yes|No"],["Hinge damaged?","select","damage","Yes|No"],["Sash closes evenly?","select","even","Yes|No"]],run:v=>({title:v.damage==="Yes"?"Damaged friction stay / hinge":"Hinge adjustment required",score:v.damage==="Yes"?94:78,evidence:[v.catch==="Yes"?"Sash catching":"No catch reported",v.damage==="Yes"?"Visible hinge damage":"No visible hinge damage",v.even==="No"?"Uneven close":"Closes evenly"],recommendation:v.damage==="Yes"?"Replace with correct hinge type and size.":"Reset alignment and verify locking.",steps:["Inspect fixings","Check clearances","Check geometry","Replace/adjust","Apply final fixings where required","Test"]})},
-"Bifold Alignment":{fields:[["Panels dragging?","select","drag","Yes|No"],["Meeting stiles aligned?","select","stile","Yes|No"],["Locks operate without lifting?","select","lock","Yes|No"]],run:v=>({title:"Bifold panel alignment / roller adjustment required",score:88,evidence:[v.drag==="Yes"?"Panels dragging":"No drag",v.stile==="No"?"Stiles misaligned":"Stiles aligned",v.lock==="No"?"Lift required to lock":"Locking normally"],recommendation:"Check rollers, panel square and toe-and-heel before altering keeps.",steps:["Check head/threshold","Measure panel clearances","Adjust rollers","Toe-and-heel","Align stiles","Test sequence"]})},
-"Sliding Door Alignment":{fields:[["Difficult to slide?","select","slide","Yes|No"],["Heavy frame/gasket contact?","select","contact","Yes|No"],["Lock engages smoothly?","select","lock","Yes|No"]],run:v=>({title:"Sliding sash alignment / roller height issue",score:88,evidence:[v.slide==="Yes"?"High sliding resistance":"Normal travel",v.contact==="Yes"?"Heavy contact":"No heavy contact",v.lock==="No"?"Poor lock engagement":"Lock smooth"],recommendation:"Check rollers, sash level and gasket contact before replacing lock hardware.",steps:["Inspect track","Check sash level","Adjust rollers","Check gasket","Align keep","Test travel"]})}
-};
-Object.keys(modules).forEach(n=>{let o=document.createElement("option");o.textContent=n;$("module").appendChild(o)});
-async function api(url,opts={}){opts.headers={...(opts.headers||{}),...(token?{"Authorization":"Bearer "+token}:{})};let r=await fetch(url,opts);if(!r.ok){let t=await r.text();throw new Error(t)}let ct=r.headers.get("content-type")||"";return ct.includes("json")?r.json():r}
-function go(id){
-  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
-  const target=$(id);
-  if(!target){console.error("FenIQ screen not found:",id);return}
-  target.classList.add("active");
-  window.scrollTo(0,0);
-  if(id==="dashboard") dashboard();
-  if(id==="jobs") jobs();
-  if(id==="analytics") analytics();
-  if(id==="learning") learning();
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (v) =>
+  String(v ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+let token = localStorage.getItem("feniq_token") || "",
+  user = null,
+  config = {},
+  catalogue = [],
+  screen = "dashboard",
+  authMode = "login",
+  draft = {},
+  diagnosis = null,
+  editing = null,
+  activeJob = null,
+  workOrderId = null,
+  pageVersion = 0;
+let photoUrls = [];
+const outcomes = [
+  "Adjusted / Resolved",
+  "Parts Required",
+  "Remake Required",
+  "Further Investigation",
+  "No Fault Found",
+];
+const statuses = [
+  "New",
+  "Scheduled",
+  "In Progress",
+  "Awaiting Approval",
+  "Complete",
+  "Cancelled",
+];
+const money = (n) =>
+  new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(
+    n / 100,
+  );
+const date = (v) =>
+  v
+    ? new Date(v).toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : "Not scheduled";
+const time = (v) =>
+  v
+    ? new Date(v).toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
+const badge = (s) =>
+  `<span class="badge ${/Resolved|Complete|Approved/.test(s) ? "good" : /Pending|Parts|Approval|Scheduled/.test(s) ? "warn" : /Reject|Remake|Urgent/.test(s) ? "bad" : "blue"}">${esc(s || "Draft")}</span>`;
+const options = (items, value = "", placeholder = "") =>
+  (placeholder ? `<option value="">${esc(placeholder)}</option>` : "") +
+  items
+    .map((x) => {
+      let v = typeof x === "object" ? x.id : x,
+        n = typeof x === "object" ? x.name : x;
+      return `<option value="${esc(v)}" ${String(v) === String(value) ? "selected" : ""}>${esc(n)}</option>`;
+    })
+    .join("");
+const field = (label, name, value = "", type = "text", extra = "") =>
+  `<label>${esc(label)}<input name="${name}" type="${type}" value="${esc(value)}" ${extra}></label>`;
+const area = (label, name, value = "", extra = "") =>
+  `<label>${esc(label)}<textarea name="${name}" ${extra}>${esc(value)}</textarea></label>`;
+const select = (label, name, items, value = "", placeholder = "") =>
+  `<label>${esc(label)}<select name="${name}">${options(items, value, placeholder)}</select></label>`;
+const empty = (title, desc) =>
+  `<div class="empty"><b>${esc(title)}</b><p>${esc(desc)}</p></div>`;
+const head = (eyebrow, title, sub = "", action = "") =>
+  `<div class="page-head"><div><div class="eyebrow">${eyebrow}</div><h1>${esc(title)}</h1><p>${esc(sub)}</p></div>${action}</div>`;
+const newButton =
+  '<button class="primary" data-action="new">+ New inspection</button>';
+const stat = (label, value, note) =>
+  `<div class="stat"><span>${label}</span><b>${value}</b><small>${note}</small></div>`;
+function toast(message, error = false) {
+  $("toast").textContent = message;
+  $("toast").style.background = error ? "#923b32" : "#163e31";
+  $("toast").style.display = "block";
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => ($("toast").style.display = "none"), 6500);
 }
-document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>go(b.dataset.go));
-function tab(which){["Login","Register","Join"].forEach(x=>{$("tab"+x).classList.toggle("selected",x.toLowerCase()===which);$(x.toLowerCase()+"Form").classList.toggle("hidden",x.toLowerCase()!==which)})}
-$("tabLogin").onclick=()=>tab("login");$("tabRegister").onclick=()=>tab("register");$("tabJoin").onclick=()=>tab("join");
-async function enter(d){token=d.token;localStorage.setItem("feniq_token",token);user=d.user;$("auth").classList.add("hidden");$("shell").classList.remove("hidden");$("roleBadge").textContent=user.role.toUpperCase();$("companyText").textContent=user.company;$("welcome").textContent="Welcome, "+user.name;dashboard()}
-$("loginBtn").onclick=async()=>{try{enter(await api("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:$("loginEmail").value,password:$("loginPassword").value})}))}catch(e){$("authMsg").textContent="Login failed."}};
-$("registerBtn").onclick=async()=>{try{enter(await api("/api/register-company",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company_name:$("regCompany").value,admin_name:$("regName").value,email:$("regEmail").value,password:$("regPassword").value})}))}catch(e){$("authMsg").textContent=e.message}};
-$("joinBtn").onclick=async()=>{try{enter(await api("/api/join-company",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invite_code:$("joinCode").value,name:$("joinName").value,email:$("joinEmail").value,password:$("joinPassword").value})}))}catch(e){$("authMsg").textContent=e.message}};
-$("logout").onclick=()=>{localStorage.removeItem("feniq_token");location.reload()};
-$("checksBtn").onclick=()=>{let m=$("module").value;$("checksTitle").textContent=m;let b=$("checksBox");b.innerHTML="";modules[m].fields.forEach(([lab,type,key,opts])=>{let w=document.createElement("label");w.textContent=lab;let e;if(type==="select"){e=document.createElement("select");opts.split("|").forEach(x=>{let o=document.createElement("option");o.textContent=x;e.appendChild(o)})}else{e=document.createElement("input");e.type=type;e.value=opts;e.step=".5"}e.id="f_"+key;w.appendChild(e);b.appendChild(w)});go("checks")};
-$("diagnoseBtn").onclick=()=>{let m=$("module").value,v={};modules[m].fields.forEach(([, ,key])=>v[key]=$("f_"+key).value);diag=modules[m].run(v);$("diagTitle").textContent=diag.title;$("confidence").textContent=diag.score+"% diagnostic confidence";$("barFill").style.width=diag.score+"%";$("evidence").innerHTML=diag.evidence.map(x=>"<li>"+x+"</li>").join("");$("recommendation").textContent=diag.recommendation;$("steps").innerHTML=diag.steps.map(x=>"<li>"+x+"</li>").join("");go("result")};
-$("saveBtn").onclick=async()=>{if(!diag)return;let payload={customer:$("customer").value,reference:$("reference").value,product:$("product").value,system_name:$("system").value,fault:$("fault").value,module:$("module").value,diagnosis:diag.title,confidence:diag.score,evidence:diag.evidence,recommendation:diag.recommendation,work_done:$("work").value,parts_required:$("parts").value,outcome:$("outcome").value,engineer_notes:$("notes").value,signature:$("signature").value,approved_by_engineer:$("approve").checked};let j=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});for(let f of $("photos").files){let fd=new FormData();fd.append("phase","before");fd.append("file",f);await api(`/api/jobs/${j.id}/photos`,{method:"POST",body:fd})}currentJob=await api(`/api/jobs/${j.id}`);report(currentJob)};
-function card(j){let d=document.createElement("div");d.className="job";d.innerHTML=`<div class="row"><b>${j.customer||"Unnamed job"}</b><small>${new Date(j.created_at).toLocaleString()}</small></div><div>${j.product} · ${j.module}</div><small>${j.diagnosis}</small>`;let b=document.createElement("button");b.textContent="Open Report";b.onclick=()=>report(j);d.appendChild(b);let l=document.createElement("button");l.textContent="Confirm Repair Outcome";l.onclick=()=>captureLearning(j);d.appendChild(l);return d}
-async function dashboard(){let js=await api("/api/jobs");$("sOpen").textContent=js.filter(x=>!x.outcome.includes("Resolved")).length;$("sReports").textContent=js.length;$("sRemakes").textContent=js.filter(x=>x.outcome.includes("Remake")).length;let c=$("recentJobs");c.innerHTML="";js.slice(0,3).forEach(j=>c.appendChild(card(j)))}
-async function jobs(){let js=await api("/api/jobs"),q=($("search").value||"").toLowerCase(),c=$("jobsList");c.innerHTML="";js.filter(j=>(j.customer+" "+j.product+" "+j.diagnosis).toLowerCase().includes(q)).forEach(j=>c.appendChild(card(j)))}$("search").oninput=()=>jobs();
-async function analytics(){let a=await api("/api/analytics");$("aTotal").textContent=a.total;$("aResolved").textContent=a.resolved;$("aRemakes").textContent=a.remakes;$("aDiag").textContent=a.top_diagnosis?a.top_diagnosis[0]+" — "+a.top_diagnosis[1]+" job(s)":"No data";$("aProduct").textContent=a.top_product?a.top_product[0]+" — "+a.top_product[1]+" job(s)":"No data"}
-async function report(j){currentJob=j;$("rDate").textContent=new Date(j.created_at).toLocaleString();$("rCustomer").textContent=j.customer;$("rRef").textContent=j.reference;$("rProduct").textContent=j.product;$("rSystem").textContent=j.system_name;$("rEngineer").textContent=j.engineer.name;$("rOutcome").textContent=j.outcome;$("rFault").textContent=j.fault;$("rFindings").textContent=j.evidence.join(". ")+(j.evidence.length?".":"");$("rDiagnosis").textContent=`${j.diagnosis} (${j.confidence}% confidence). ${j.recommendation}`;$("rWork").textContent=j.work_done;$("rParts").textContent=j.parts_required;$("rNotes").textContent=j.engineer_notes;$("rSign").textContent=j.signature;let p=$("rPhotos");p.innerHTML="";j.photos.forEach(ph=>{let im=document.createElement("img");im.src=ph.url;p.appendChild(im)});$("aiBox").classList.add("hidden");go("report")}
-$("pdfBtn").onclick=async()=>{
-  if(!currentJob)return;
-  try{
-    const r=await fetch(`/api/jobs/${currentJob.id}/report.pdf`,{
-      headers:{Authorization:"Bearer "+token}
-    });
-    if(!r.ok)throw new Error("PDF request failed: "+r.status);
-    const blob=await r.blob();
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");
-    a.href=url;
-    a.target="_blank";
-    a.rel="noopener";
-    a.click();
-    setTimeout(()=>URL.revokeObjectURL(url),60000);
-  }catch(e){
-    alert("Unable to open PDF: "+e.message);
+async function api(url, opts = {}) {
+  let r = await fetch(url, {
+    ...opts,
+    headers: {
+      ...(opts.headers || {}),
+      ...(token ? { Authorization: "Bearer " + token } : {}),
+    },
+  });
+  if (!r.ok) {
+    let d;
+    try {
+      d = await r.json();
+    } catch {
+      d = { detail: "Request failed. Please try again." };
+    }
+    if (r.status === 401 && user) {
+      signOut();
+      throw Error("Your session expired. Please sign in again.");
+    }
+    throw Error(
+      Array.isArray(d.detail)
+        ? d.detail.map((x) => x.msg).join(". ")
+        : d.detail || "Request failed",
+    );
+  }
+  return (r.headers.get("content-type") || "").includes("json") ? r.json() : r;
+}
+const send = (url, data, method = "POST") =>
+  api(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+async function busy(button, fn) {
+  if (button?.disabled) return;
+  const before = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Working…";
+  }
+  try {
+    return await fn();
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = before;
+    }
+  }
+}
+function openModal(title, html) {
+  $("modalBody").innerHTML =
+    `<div class="dialog-head"><h2>${esc(title)}</h2><button data-action="close" aria-label="Close dialog">×</button></div>${html}`;
+  $("modal").showModal();
+}
+function signOut() {
+  token = "";
+  user = null;
+  localStorage.removeItem("feniq_token");
+  $("shell").classList.add("hidden");
+  $("auth").classList.remove("hidden");
+  $("modal").close();
+  photoUrls.forEach(URL.revokeObjectURL);
+  photoUrls = [];
+  renderAuth();
+}
+function renderAuth() {
+  document
+    .querySelectorAll("[data-auth]")
+    .forEach((b) =>
+      b.classList.toggle("selected", b.dataset.auth === authMode),
+    );
+  let html = "";
+  if (authMode === "register")
+    html += field(
+      "Company name",
+      "company_name",
+      "",
+      "text",
+      'required maxlength="180"',
+    );
+  if (authMode === "join")
+    html += field("Company invite code", "invite_code", "", "text", "required");
+  if (authMode !== "login")
+    html += field(
+      "Your name",
+      authMode === "register" ? "admin_name" : "name",
+      "",
+      "text",
+      'required maxlength="180"',
+    );
+  html +=
+    field(
+      "Email address",
+      "email",
+      "",
+      "email",
+      'required autocomplete="email"',
+    ) +
+    field(
+      "Password",
+      "password",
+      "",
+      "password",
+      `required ${authMode === "login" ? 'autocomplete="current-password"' : 'minlength="8" autocomplete="new-password"'}`,
+    );
+  $("authFields").innerHTML = html;
+  $("authSubmit").textContent = {
+    login: "Sign in",
+    register: "Create company",
+    join: "Join team",
+  }[authMode];
+  $("authError").textContent = "";
+}
+async function enter(data) {
+  token = data.token;
+  user = data.user;
+  localStorage.setItem("feniq_token", token);
+  catalogue = await api("/api/diagnostics/catalogue");
+  $("auth").classList.add("hidden");
+  $("shell").classList.remove("hidden");
+  $("companyText").textContent = user.company;
+  $("userName").textContent = user.name;
+  $("roleText").textContent =
+    user.role === "admin" ? "Company admin" : "Service engineer";
+  $("avatar").textContent = user.name
+    .split(" ")
+    .map((x) => x[0])
+    .slice(0, 2)
+    .join("");
+  $("demoBanner").classList.toggle(
+    "hidden",
+    !user.company.startsWith("FenIQ Demo"),
+  );
+  await go("dashboard");
+}
+$("authForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const b = $("authSubmit");
+  b.disabled = true;
+  $("authError").textContent = "";
+  try {
+    await enter(
+      await send(
+        "/api/" +
+          {
+            login: "login",
+            register: "register-company",
+            join: "join-company",
+          }[authMode],
+        Object.fromEntries(new FormData(e.target)),
+      ),
+    );
+  } catch (err) {
+    $("authError").textContent = err.message;
+  } finally {
+    b.disabled = false;
   }
 };
-$("aiPhotoBtn").onclick=async()=>{if(!currentJob||!currentJob.photos.length){$("aiBox").classList.remove("hidden");$("aiBox").textContent="No photo available.";return}try{let r=await fetch(`/api/photos/${currentJob.photos[0].id}/analyse`,{method:"POST",headers:{"Authorization":"Bearer "+token}});let d=await r.json();$("aiBox").classList.remove("hidden");$("aiBox").innerHTML=`<h3>AI Photo Analysis</h3><p><b>Mode:</b> ${d.mode}</p><h4>Observations</h4><ul>${(d.observations||[]).map(x=>"<li>"+x+"</li>").join("")}</ul><h4>Possible faults</h4><ul>${(d.possible_faults||[]).map(x=>"<li>"+x+"</li>").join("")}</ul><h4>Recommended checks</h4><ul>${(d.recommended_checks||[]).map(x=>"<li>"+x+"</li>").join("")}</ul><h4>Limitations</h4><ul>${(d.safety_or_limitations||[]).map(x=>"<li>"+x+"</li>").join("")}</ul>`}catch(e){alert(e.message)}};
-if($("companyBtn")) $("companyBtn").onclick=async()=>{let c=await api("/api/company");$("companyName").textContent=c.name;$("inviteCode").textContent=c.invite_code||"Visible to admins only";let box=$("usersBox");box.innerHTML="";if(user.role==="admin"){let us=await api("/api/company/users");us.forEach(u=>{let d=document.createElement("div");d.className="user";d.innerHTML=`<b>${u.name}</b><small>${u.email} · ${u.role}</small>`;box.appendChild(d)})}go("company")};
-(async()=>{if(token){try{user=await api("/api/me");$("auth").classList.add("hidden");$("shell").classList.remove("hidden");$("roleBadge").textContent=user.role.toUpperCase();$("companyText").textContent=user.company;$("welcome").textContent="Welcome, "+user.name;dashboard()}catch(e){localStorage.removeItem("feniq_token");token=""}}})();
-async function renderGuideList(q=""){
- let gs=q?await api("/api/guides/search?q="+encodeURIComponent(q)):await api("/api/guides");
- let c=$("guideList");c.innerHTML="";
- gs.forEach(g=>{let d=document.createElement("div");d.className="job";d.innerHTML=`<b>${g.title}</b><small>${g.source_status}</small><p>${g.summary}</p>`;let b=document.createElement("button");b.textContent="Open Guide";b.onclick=()=>{d.innerHTML=`<b>${g.title}</b><small>${g.source_status}</small><p>${g.summary}</p><ol>${g.steps.map(x=>"<li>"+x+"</li>").join("")}</ol><h4>Warnings</h4><ul>${g.warnings.map(x=>"<li>"+x+"</li>").join("")}</ul>`};d.appendChild(b);c.appendChild(d)})
+$("logout").onclick = signOut;
+$("menuToggle").onclick = () =>
+  document.querySelector(".sidebar").classList.toggle("open");
+$("switchRole").onclick = () =>
+  busy($("switchRole"), async () =>
+    enter(
+      await api(
+        "/api/demo?role=" + (user.role === "admin" ? "engineer" : "admin"),
+        { method: "POST" },
+      ),
+    ),
+  );
+async function go(id) {
+  screen = id;
+  const version = ++pageVersion;
+  document.querySelector(".sidebar").classList.remove("open");
+  document
+    .querySelectorAll("[data-go]")
+    .forEach((b) => b.classList.toggle("active", b.dataset.go === id));
+  $("content").innerHTML = '<div class="loading">Loading your workspace…</div>';
+  photoUrls.forEach(URL.revokeObjectURL);
+  photoUrls = [];
+  window.scrollTo(0, 0);
+  try {
+    let html = await pages[id]();
+    if (version !== pageVersion) return;
+    $("content").innerHTML = html;
+    if (id === "report") await loadPhotos(activeJob);
+    await updateNotifications();
+  } catch (e) {
+    if (version === pageVersion)
+      $("content").innerHTML =
+        empty("We couldn’t load this page", e.message) +
+        '<button data-action="retry">Try again</button>';
+  }
 }
-$("libraryBtn").onclick=()=>{go("library");renderGuideList()};
-$("guideSearch").oninput=e=>renderGuideList(e.target.value);
+async function updateNotifications() {
+  const ns = await api("/api/notifications");
+  $("notificationButton").textContent =
+    "Notifications" +
+    (ns.filter((n) => !n.read).length
+      ? ` (${ns.filter((n) => !n.read).length})`
+      : "");
+}
+function jobTable(jobs) {
+  if (!jobs.length)
+    return empty(
+      "No inspections yet",
+      "Start a new inspection to capture your first service visit.",
+    );
+  return `<div class="table-wrap"><table><thead><tr><th>Site / reference</th><th>Product</th><th>Outcome</th><th>Inspected</th><th></th></tr></thead><tbody>${jobs.map((j) => `<tr><td><b>${esc(j.customer)}</b><small>${esc(j.reference || "No reference")}</small></td><td>${esc(j.product)}<small>${esc(j.engineer.name)}</small></td><td>${badge(j.outcome)}</td><td>${date(j.created_at)}</td><td><button data-report="${j.id}">View ↗</button></td></tr>`).join("")}</tbody></table></div>`;
+}
+const pages = {
+  async dashboard() {
+    const [jobs, orders, approvals] = await Promise.all([
+      api("/api/jobs"),
+      api("/api/work-orders"),
+      api("/api/approvals"),
+    ]);
+    const open = orders
+      .filter((w) => !["Complete", "Cancelled"].includes(w.status))
+      .sort((a, b) =>
+        (a.scheduled_for || "z").localeCompare(b.scheduled_for || "z"),
+      );
+    return (
+      head(
+        "YOUR WORKSPACE",
+        `Good to see you, ${user.name.split(" ")[0]}.`,
+        "Here’s what’s happening across your service visits.",
+        newButton,
+      ) +
+      `<div class="hero"><div><div class="eyebrow">KNOWLEDGE AT THE POINT OF REPAIR</div><h2>Every check brings you closer.</h2><p>Turn observations into a clear diagnosis, a considered repair and a report you can stand behind.</p><button class="primary" data-action="new">Start an inspection ↗</button> <button data-go="library">Explore field guides</button></div><div class="hero-mark" aria-hidden="true">▥</div></div><div class="stats">${stat("Inspections", jobs.length, "Saved service records")}${stat("Visits to complete", open.length, "Scheduled and active work")}${stat("Repairs resolved", jobs.filter((j) => j.outcome === "Adjusted / Resolved").length, "Confirmed in inspection records")}${stat("Awaiting approval", approvals.filter((a) => a.status === "Pending").length, "Commercial decisions")}</div><div class="grid"><section class="panel"><div class="panel-head"><h3>Recent inspections</h3><button data-go="jobs">View all ↗</button></div>${jobTable(jobs.slice(0, 5))}</section><section class="panel"><div class="panel-head"><h3>Upcoming visits</h3><button data-go="schedule">Schedule ↗</button></div>${
+        open.length
+          ? open
+              .slice(0, 3)
+              .map(
+                (w) =>
+                  `<div class="visit"><span class="visit-time">${date(w.scheduled_for)} · ${time(w.scheduled_for)}</span><h4>${esc(w.title)}</h4><small>${esc(w.site_reference || "No reference")}</small><button data-start-order="${w.id}">${w.job_id ? "Open inspection" : "Start inspection"} ↗</button></div>`,
+              )
+              .join("")
+          : empty("All caught up", "Your next assigned visit will appear here.")
+      }</section></div>`
+    );
+  },
+  async jobs() {
+    const jobs = await api("/api/jobs");
+    pages.jobs.cache = jobs;
+    return (
+      head(
+        "SERVICE RECORDS",
+        "Inspections",
+        "A clear record of every check, repair and outcome.",
+        newButton,
+      ) +
+      `<div class="toolbar"><input id="jobSearch" aria-label="Search inspections" placeholder="Search site, reference or diagnosis…"><select id="jobFilter" aria-label="Filter outcomes">${options(outcomes, "", "All outcomes")}</select></div><div class="panel" id="jobResults">${jobTable(jobs)}</div>`
+    );
+  },
+  async schedule() {
+    const [orders, customers] = await Promise.all([
+      api("/api/work-orders"),
+      api("/api/customers"),
+    ]);
+    pages.schedule.orders = orders;
+    pages.schedule.customers = customers;
+    return (
+      head(
+        "SERVICE OPERATIONS",
+        "Schedule",
+        user.role === "admin"
+          ? "Plan visits, assign your team and follow progress."
+          : "Your assigned visits and follow-up work.",
+        user.role === "admin"
+          ? '<button class="primary" data-action="new-order">+ Schedule a visit</button>'
+          : "",
+      ) +
+      `<div class="cards">${
+        orders.length
+          ? orders
+              .sort((a, b) =>
+                (a.scheduled_for || "z").localeCompare(b.scheduled_for || "z"),
+              )
+              .map(
+                (w) =>
+                  `<article class="panel"><div class="actions">${badge(w.status)}${badge(w.priority)}</div><h3 style="margin-top:18px">${esc(w.title)}</h3><p>${esc(customers.find((c) => c.id === w.customer_id)?.name || "No customer linked")}</p><div class="visit-time">${date(w.scheduled_for)} · ${time(w.scheduled_for)}</div><p class="muted">${esc(w.notes || "No visit notes")}</p><label>Status<select data-order-status="${w.id}">${options(statuses, w.status)}</select></label><div class="actions"><button class="primary" data-start-order="${w.id}">${w.job_id ? "Open inspection" : "Start inspection"}</button>${user.role === "admin" ? `<button data-edit-order="${w.id}">Edit visit</button>` : ""}</div></article>`,
+              )
+              .join("")
+          : empty(
+              "No visits scheduled",
+              user.role === "admin"
+                ? "Create a visit and assign it to a team member."
+                : "Your admin can assign visits to you.",
+            )
+      }</div>`
+    );
+  },
+  async customers() {
+    const cs = await api("/api/customers");
+    return (
+      head(
+        "CUSTOMER DIRECTORY",
+        "Customers",
+        "Site details close to the work they belong to.",
+        '<button class="primary" data-action="new-customer">+ Add customer</button>',
+      ) +
+      `<div class="cards">${cs.length ? cs.map((c) => `<article class="panel"><div class="eyebrow">CUSTOMER / SITE</div><h3>${esc(c.name)}</h3><p>${esc(c.address || "No address recorded")}</p><p class="muted">${esc(c.contact_name)}<br>${esc(c.email)}<br>${esc(c.phone)}</p><button data-customer-inspect="${esc(c.name)}">New inspection ↗</button></article>`).join("") : empty("Your customer directory starts here", "Add a customer to use them when scheduling visits.")}</div>`
+    );
+  },
+  async approvals() {
+    const [as, js] = await Promise.all([
+      api("/api/approvals"),
+      api("/api/jobs"),
+    ]);
+    return (
+      head(
+        "COMMERCIAL DECISIONS",
+        "Approvals",
+        "Keep replacement parts, remakes and chargeable work accountable.",
+      ) +
+      `<div class="cards">${as.length ? as.map((a) => `<article class="panel">${badge(a.status)}<h3 style="margin-top:18px">${esc(a.approval_type)}</h3><small>${esc(js.find((j) => j.id === a.job_id)?.customer || "Inspection")}</small><p>${esc(a.description)}</p><h2>${money(a.estimated_cost_pence)}</h2>${a.decision_note ? `<p class="notice">${esc(a.decision_note)}</p>` : ""}<div class="actions"><button data-report="${a.job_id}">View inspection</button>${user.role === "admin" && a.status === "Pending" ? `<button class="primary" data-decision="${a.id}">Review request</button>` : ""}</div></article>`).join("") : empty("No approval requests", "Open an inspection to request approval for parts or further work.")}</div>`
+    );
+  },
+  async library() {
+    const gs = await api("/api/guides");
+    pages.library.cache = gs;
+    return (
+      head(
+        "FIELD KNOWLEDGE",
+        "Knowledge library",
+        "Practical guidance for considered, repeatable repairs.",
+      ) +
+      `<div class="toolbar"><input id="guideSearch" aria-label="Search guides" placeholder="Search hinges, gasket, locking, sliding…"></div><div class="notice">Field guides support professional judgement. Manufacturer-specific limits remain pending verification unless explicitly marked verified.</div><div class="cards" id="guideResults">${guideCards(gs)}</div>`
+    );
+  },
+  async learning() {
+    const [m, ps, a] = await Promise.all([
+      api("/api/learning/metrics"),
+      api("/api/learning/patterns"),
+      api("/api/analytics"),
+    ]);
+    return (
+      head(
+        "LEARN FROM THE WORK",
+        "Repair insights",
+        "Engineer-confirmed outcomes turn field experience into evidence.",
+      ) +
+      `<div class="stats">${stat("Confirmed outcomes", m.records, "Engineer feedback records")}${stat("Diagnosis confirmed", m.diagnosis_confirmation_rate + "%", "Matches the initial diagnosis")}${stat("Repair resolution", m.repair_resolution_rate + "%", "Of confirmed outcomes")}${stat("Repeat visits", m.repeat_visit_rate + "%", "Of confirmed outcomes")}</div><div class="grid"><div class="panel"><h3>Patterns from completed repairs</h3>${ps.length ? ps.map((p) => `<div class="visit"><h4>${esc(p.predicted_diagnosis)}</h4><p class="muted">${p.cases} confirmed cases · ${p.confirmation_rate}% diagnosis confirmed · ${p.resolution_rate}% resolved</p></div>`).join("") : empty("More experience, better insight", "Record a repair outcome from an inspection to begin.")}</div><div class="panel"><h3>Workspace snapshot</h3><p>${a.total} total inspections</p><p>${a.resolved} resolved · ${a.remakes} requiring remakes</p><h3>Dataset maturity</h3>${badge(m.learning_status)}<p class="muted">Average usefulness: ${m.average_engineer_rating} / 5</p><div class="notice">Outcomes are collected as evidence. They do not automatically change the diagnostic rules.</div></div></div>`
+    );
+  },
+  async company() {
+    const c = await api("/api/company");
+    const us = user.role === "admin" ? await api("/api/company/users") : [];
+    const events = user.role === "admin" ? await api("/api/audit") : [];
+    return (
+      head(
+        "YOUR ORGANISATION",
+        "Company & team",
+        "A shared workspace with individual responsibilities.",
+      ) +
+      `<div class="grid"><div class="panel"><h3>${esc(c.name)}</h3>${c.invite_code ? `<p class="muted">Share this code with engineers you want to join your company.</p><div class="notice"><b>${esc(c.invite_code)}</b></div>` : "<p>Your administrator manages team invitations.</p>"}<h3>Team members</h3>${us.map((u) => `<div class="visit"><b>${esc(u.name)}</b><p class="muted">${esc(u.email)} · ${esc(u.role)}</p></div>`).join("")}</div><div class="panel"><h3>Recent activity</h3>${
+        events.length
+          ? events
+              .slice(0, 12)
+              .map(
+                (e) =>
+                  `<div class="visit"><b>${esc(e.action.replaceAll(".", " ").replaceAll("_", " "))}</b><small>${date(e.created_at)} · ${time(e.created_at)}</small></div>`,
+              )
+              .join("")
+          : empty(
+              "Activity will appear here",
+              "Saved changes create an audit record for company admins.",
+            )
+      }</div></div>`
+    );
+  },
+  async notifications() {
+    const ns = await api("/api/notifications");
+    return (
+      head(
+        "STAY IN THE LOOP",
+        "Notifications",
+        "Assignments and decisions relevant to you.",
+      ) +
+      `<div class="panel">${ns.length ? ns.map((n) => `<div class="visit"><div class="actions"><h4>${esc(n.title)}</h4>${!n.read ? badge("New") : ""}</div><p>${esc(n.body)}</p><small>${date(n.created_at)}</small>${!n.read ? `<button data-read="${n.id}">Mark as read</button>` : ""}</div>`).join("") : empty("Nothing new", "Updates about visits and approvals will appear here.")}</div>`
+    );
+  },
+  async inspection() {
+    return renderDetails();
+  },
+  async checks() {
+    return renderChecks();
+  },
+  async result() {
+    return renderResult();
+  },
+  async report() {
+    const j = activeJob;
+    return (
+      head(
+        "INSPECTION RECORD",
+        j.reference || "Service report",
+        j.customer,
+        `<div class="actions"><button data-action="edit-job">Edit inspection</button><button class="primary" data-action="pdf">Download PDF ↓</button></div>`,
+      ) +
+      `<article class="panel"><div class="panel-head"><h2>FenIQ <small> / SERVICE REPORT</small></h2>${badge(j.approved_by_engineer ? "Engineer approved" : "Review required")}</div><div class="report-meta">${[
+        ["Customer / site", j.customer],
+        ["Product", j.product],
+        ["System", j.system_name],
+        ["Engineer", j.engineer.name],
+        ["Date", date(j.created_at)],
+        ["Outcome", j.outcome],
+      ]
+        .map(
+          ([k, v]) =>
+            `<div><small>${k}</small><b>${esc(v || "Not recorded")}</b></div>`,
+        )
+        .join("")}</div>${[
+        ["Reported fault", j.fault],
+        ["Diagnosis", j.diagnosis],
+        ["Supporting evidence", j.evidence.join("\n")],
+        ["Recommended action", j.recommendation],
+        ["Work carried out", j.work_done],
+        ["Parts / further requirements", j.parts_required],
+        ["Engineer notes", j.engineer_notes],
+        ["Customer sign-off", j.signature],
+      ]
+        .map(
+          ([k, v]) =>
+            `<section class="report-section"><h3>${k}</h3><p>${esc(v || "Not recorded")}</p></section>`,
+        )
+        .join(
+          "",
+        )}<div class="notice">${j.confidence}% rule score. Decision support, not a calibrated probability or a manufacturer specification.</div><h3>Photo evidence</h3><div id="reportPhotos" class="photos">${j.photos.length ? "Loading photos…" : "No photos attached yet."}</div><form id="photoForm" style="margin-top:20px"><div class="form-grid">${select("Evidence phase", "phase", ["before", "after"])}<label>JPG, PNG or WEBP<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label></div><button>Add photo</button></form>${config.vision_enabled && j.photos.length ? '<button data-action="analyse">Analyse first photo</button>' : ""}</article><div class="actions"><button class="primary" data-action="learning-form">Record repair outcome</button><button data-action="approval-form">Request commercial approval</button>${!j.approved_by_engineer ? '<button data-action="approve-job">Mark engineer reviewed</button>' : ""}</div>`
+    );
+  },
+};
+function guideCards(gs) {
+  return gs.length
+    ? gs
+        .map(
+          (g) =>
+            `<article class="panel"><div class="eyebrow">FIELD GUIDE</div><h3>${esc(g.title)}</h3><p class="muted">${esc(g.summary)}</p>${badge(g.source_status.replaceAll("_", " "))}<p><button data-guide="${g.id}">Read guide ↗</button></p></article>`,
+        )
+        .join("")
+    : empty("No matching guides", "Try another product or component name.");
+}
+function startInspection(customer = "", order = null) {
+  draft = {
+    customer,
+    product: "French Door",
+    outcome: "Further Investigation",
+  };
+  diagnosis = null;
+  editing = null;
+  workOrderId = order?.id || null;
+  if (order) {
+    draft.reference = order.site_reference;
+    draft.fault = order.notes;
+  }
+  go("inspection");
+}
+function renderDetails() {
+  return (
+    head(
+      "NEW INSPECTION",
+      "Start with the essentials",
+      "Capture the site and reported issue before physical checks.",
+    ) +
+    `<div class="stepper"><span class="current">1 · Details</span>→<span>2 · Physical checks</span>→<span>3 · Repair & report</span></div><form id="detailsForm" class="panel form-card"><div class="form-grid">${field("Customer / site", "customer", draft.customer, "text", 'required maxlength="255"')}${field("Job reference", "reference", draft.reference, "text", 'maxlength="120"')}${select("Product", "product", ["French Door", "Window", "Residential Door", "Bifold", "Sliding Door", "Tilt & Turn"], draft.product)}${field("System / manufacturer", "system_name", draft.system_name)}<div class="wide">${area("Reported fault", "fault", draft.fault, "required")}</div><div class="wide">${select("Diagnostic module", "module", catalogue, draft.module || catalogue.find((m) => m.products.includes(draft.product))?.id)}</div></div><div class="notice">Select the module that matches your physical investigation. No measurements or test results are assumed.</div><button class="primary">Continue to physical checks →</button></form>`
+  );
+}
+function renderChecks() {
+  const m = catalogue.find((x) => x.id === draft.module);
+  return (
+    head(
+      "PHYSICAL EVIDENCE",
+      m.name,
+      "Record what you have actually checked on site.",
+    ) +
+    `<div class="stepper"><span>1 · Details</span>→<span class="current">2 · Physical checks</span>→<span>3 · Repair & report</span></div><form id="checksForm" class="panel form-card"><div class="form-grid">${m.checks
+      .map((c) => {
+        let value = draft.diagnostic_answers?.[c.key];
+        let label =
+          c.label +
+          (c.unit ? " (" + c.unit + ")" : "") +
+          (c.required ? " *" : "");
+        return c.type === "number"
+          ? field(
+              label,
+              c.key,
+              value ?? "",
+              "number",
+              `step="any" min="0" ${c.required ? "required" : ""}`,
+            )
+          : `<label>${esc(label)}<select name="${c.key}" ${c.required ? "required" : ""}>${options(
+              c.type === "bool"
+                ? [
+                    { id: "true", name: "Yes" },
+                    { id: "false", name: "No" },
+                  ]
+                : c.options,
+              value === undefined ? "" : String(value),
+              "Select a finding…",
+            )}</select></label>`;
+      })
+      .join(
+        "",
+      )}</div><div class="notice">FenIQ working rules support your investigation. Check approved manufacturer documentation before applying system-specific tolerances.</div><div class="actions"><button type="button" data-go="inspection">← Back</button><button class="primary">Run diagnosis →</button></div></form>`
+  );
+}
+function renderResult() {
+  const d = diagnosis;
+  return (
+    head(
+      editing ? "UPDATE INSPECTION" : "DIAGNOSIS & REPAIR",
+      editing
+        ? "Complete the service record"
+        : "From findings to a clear action",
+      "Review the diagnosis and record what happened on site.",
+    ) +
+    `<div class="stepper"><span>1 · Details</span>→<span>2 · Physical checks</span>→<span class="current">3 · Repair & report</span></div><div class="grid"><form id="resultForm" class="panel"><h3>Repair record</h3>${editing ? field("Customer / site", "customer", draft.customer, "text", "required") : ""}${area("Work carried out", "work_done", draft.work_done)}${field("Parts / further requirements", "parts_required", draft.parts_required)}${select("Outcome", "outcome", outcomes, draft.outcome || "Further Investigation")}${area("Engineer notes", "engineer_notes", draft.engineer_notes)}${field("Customer sign-off name", "signature", draft.signature)}<label class="check"><input name="approved_by_engineer" type="checkbox" ${draft.approved_by_engineer ? "checked" : ""}>I have reviewed this diagnosis and service record.</label><p class="muted">Commercial approvals for parts, remakes or chargeable work are requested separately from the saved inspection.</p><div class="actions">${!editing ? '<button type="button" data-go="checks">← Back to checks</button>' : ""}<button class="primary">${editing ? "Save changes" : "Save inspection"} →</button></div></form><div><div class="panel"><div class="eyebrow">DIAGNOSTIC FINDING</div><h2>${esc(d.title)}</h2><div class="result-score"><span class="score">${d.confidence}%</span><span class="muted">Rule score<br><small>Not a calibrated probability</small></span></div><div class="bar"><span style="width:${Number(d.confidence)}%"></span></div><ul class="detail-list">${d.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul><h3>Recommended action</h3><p>${esc(d.recommendation)}</p>${d.repair_steps?.length ? `<h3>Repair sequence</h3><ol class="detail-list">${d.repair_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}</div><div class="notice">Engineer review is required before acting on findings. Manufacturer values must be verified against approved sources.</div></div></div>`
+  );
+}
+async function loadPhotos(j) {
+  const container = $("reportPhotos");
+  container.innerHTML = "";
+  for (const p of j.photos) {
+    try {
+      const r = await api(p.url);
+      const url = URL.createObjectURL(await r.blob());
+      photoUrls.push(url);
+      if (screen !== "report" || activeJob.id !== j.id) return;
+      const fig = document.createElement("figure");
+      fig.innerHTML = `<img alt="${esc(p.phase)} inspection evidence" src="${url}"><figcaption>${esc(p.phase)} · ${esc(p.name)}</figcaption>`;
+      container.appendChild(fig);
+    } catch (e) {
+      container.textContent =
+        "Some photo evidence could not be loaded. " + e.message;
+    }
+  }
+  if (!j.photos.length) container.textContent = "No photos attached yet.";
+}
+async function showReport(id) {
+  activeJob = await api("/api/jobs/" + id);
+  await go("report");
+}
+async function orderForm(id = null) {
+  const [customers, users, orders] = await Promise.all([
+    api("/api/customers"),
+    api("/api/company/users"),
+    api("/api/work-orders"),
+  ]);
+  const w = orders.find((x) => x.id === id) || {};
+  openModal(
+    id ? "Edit service visit" : "Schedule a service visit",
+    `<form id="orderForm" data-id="${id || ""}"><div class="form-grid"><div class="wide">${field("Visit title", "title", w.title, "text", 'required maxlength="240"')}</div>${select("Customer", "customer_id", customers, w.customer_id, "Select customer…")}${select("Assign to", "assigned_engineer_id", users, w.assigned_engineer_id, "Unassigned")}${field("Visit date & time", "scheduled_for", w.scheduled_for?.slice(0, 16), "datetime-local")}${select("Priority", "priority", ["Low", "Normal", "High", "Urgent"], w.priority || "Normal")}<div class="wide">${field("Site / job reference", "site_reference", w.site_reference)}${area("Visit notes", "notes", w.notes)}</div></div><input type="hidden" name="job_id" value="${esc(w.job_id || "")}"><p class="error form-error" role="alert"></p><button class="primary">Save visit</button></form>`,
+  );
+}
+async function outcomeForm() {
+  const j = activeJob;
+  const l = await api(`/api/jobs/${j.id}/learning`);
+  openModal(
+    "Record repair outcome",
+    `<form id="learningForm">${field("Engineer-confirmed diagnosis", "confirmed_diagnosis", l?.confirmed_diagnosis || j.diagnosis, "text", "required")}${area("Actual repair carried out", "actual_repair", l?.actual_repair || j.work_done, "required")}<div class="form-grid">${select(
+      "Did the repair resolve the fault?",
+      "resolved",
+      [
+        { id: "true", name: "Yes" },
+        { id: "false", name: "No" },
+      ],
+      String(l?.resolved ?? false),
+    )}${select(
+      "Is another visit required?",
+      "repeat_visit_required",
+      [
+        { id: "false", name: "No" },
+        { id: "true", name: "Yes" },
+      ],
+      String(l?.repeat_visit_required ?? false),
+    )}${select("Part / remake correct?", "remake_or_part_correct", ["Not applicable", "Yes", "No"], l?.remake_or_part_correct || "Not applicable")}${select(
+      "How useful was FenIQ?",
+      "engineer_rating",
+      [
+        { id: 1, name: "1 · Not useful" },
+        { id: 2, name: "2 · Slightly useful" },
+        { id: 3, name: "3 · Useful" },
+        { id: 4, name: "4 · Very useful" },
+        { id: 5, name: "5 · Excellent" },
+      ],
+      l?.engineer_rating || 3,
+    )}</div>${area("Feedback", "engineer_feedback", l?.engineer_feedback)}<label class="check"><input type="checkbox" name="anonymised_for_learning" ${l?.anonymised_for_learning ? "checked" : ""}>Allow this outcome to be used in anonymised learning.</label><p class="error form-error" role="alert"></p><button class="primary">Save outcome</button></form>`,
+  );
+}
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.auth) {
+    authMode = b.dataset.auth;
+    renderAuth();
+    return;
+  }
+  if (b.dataset.demo) {
+    await busy(b, async () =>
+      enter(await api("/api/demo?role=" + b.dataset.demo, { method: "POST" })),
+    );
+    return;
+  }
+  if (b.dataset.go) {
+    await go(b.dataset.go);
+    return;
+  }
+  if (b.dataset.report) {
+    await busy(b, () => showReport(b.dataset.report));
+    return;
+  }
+  if (b.dataset.customerInspect) {
+    startInspection(b.dataset.customerInspect);
+    return;
+  }
+  if (b.dataset.startOrder) {
+    await busy(b, async () => {
+      const orders = await api("/api/work-orders"),
+        w = orders.find((x) => x.id === b.dataset.startOrder);
+      if (w.job_id) {
+        await showReport(w.job_id);
+        return;
+      }
+      const cs = await api("/api/customers");
+      startInspection(cs.find((c) => c.id === w.customer_id)?.name || "", w);
+    });
+    return;
+  }
+  if (b.dataset.editOrder) {
+    await busy(b, () => orderForm(b.dataset.editOrder));
+    return;
+  }
+  if (b.dataset.read) {
+    await busy(b, async () => {
+      await api(`/api/notifications/${b.dataset.read}/read`, {
+        method: "POST",
+      });
+      await go("notifications");
+    });
+    return;
+  }
+  if (b.dataset.guide) {
+    await busy(b, async () => {
+      let g = await api("/api/guides/" + b.dataset.guide);
+      openModal(
+        g.title,
+        `<p>${esc(g.summary)}</p>${badge(g.source_status.replaceAll("_", " "))}<ol class="detail-list">${g.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol><div class="notice">${g.warnings.map(esc).join("<br>")}</div>`,
+      );
+    });
+    return;
+  }
+  if (b.dataset.decision) {
+    openModal(
+      "Review commercial request",
+      `<form id="decisionForm" data-id="${b.dataset.decision}">${select("Decision", "status", ["Approved", "Rejected"])}${area("Decision note", "decision_note", "", "required")}<p class="error form-error" role="alert"></p><button class="primary">Save decision</button></form>`,
+    );
+    return;
+  }
+  const action = b.dataset.action;
+  if (!action) return;
+  if (action === "close") {
+    $("modal").close();
+    return;
+  }
+  if (action === "new") {
+    startInspection();
+    return;
+  }
+  if (action === "retry") {
+    go(screen);
+    return;
+  }
+  if (action === "new-order") {
+    await busy(b, () => orderForm());
+    return;
+  }
+  if (action === "new-customer") {
+    openModal(
+      "Add a customer",
+      `<form id="customerForm"><div class="form-grid">${field("Customer / site name", "name", "", "text", 'required maxlength="200"')}${field("Contact name", "contact_name")}${field("Email", "email", "", "email")}${field("Phone", "phone", "", "tel")}<div class="wide">${area("Site address", "address")}</div></div><p class="error form-error" role="alert"></p><button class="primary">Save customer</button></form>`,
+    );
+    return;
+  }
+  if (action === "edit-job") {
+    draft = { ...activeJob };
+    editing = activeJob.id;
+    workOrderId = null;
+    diagnosis = {
+      title: draft.diagnosis,
+      confidence: draft.confidence,
+      evidence: draft.evidence,
+      recommendation: draft.recommendation,
+    };
+    await go("result");
+    return;
+  }
+  if (action === "learning-form") {
+    await busy(b, outcomeForm);
+    return;
+  }
+  if (action === "approval-form") {
+    openModal(
+      "Request commercial approval",
+      `<form id="approvalForm">${select("Request type", "approval_type", ["Replacement part", "Sash remake", "Full frame remake", "Chargeable repair", "Warranty escalation", "Further investigation"])}${area("Reason and supporting details", "description", "", "required")}${field("Estimated cost (£)", "cost", "", "number", 'required min="0" step="0.01"')}<p class="muted">Your company administrator will receive this request.</p><p class="error form-error" role="alert"></p><button class="primary">Submit request</button></form>`,
+    );
+    return;
+  }
+  if (action === "approve-job") {
+    await busy(b, async () => {
+      await api(`/api/jobs/${activeJob.id}/approve`, { method: "PATCH" });
+      await showReport(activeJob.id);
+      toast("Inspection marked as engineer reviewed");
+    });
+    return;
+  }
+  if (action === "pdf") {
+    await busy(b, async () => {
+      const r = await api(`/api/jobs/${activeJob.id}/report.pdf`),
+        url = URL.createObjectURL(await r.blob()),
+        a = document.createElement("a");
+      a.href = url;
+      a.download = `FenIQ-${activeJob.reference || activeJob.id.slice(0, 8)}.pdf`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      toast("Report downloaded");
+    });
+    return;
+  }
+  if (action === "analyse") {
+    await busy(b, async () => {
+      let d = await api(`/api/photos/${activeJob.photos[0].id}/analyse`, {
+        method: "POST",
+      });
+      openModal(
+        "Photo observations",
+        Object.entries(d)
+          .filter(([k, v]) => Array.isArray(v))
+          .map(
+            ([k, v]) =>
+              `<h3>${esc(k.replaceAll("_", " "))}</h3><ul>${v.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`,
+          )
+          .join(""),
+      );
+    });
+    return;
+  }
+});
+document.addEventListener("submit", async (e) => {
+  const form = e.target;
+  if (form.id === "authForm") return;
+  e.preventDefault();
+  const b = form.querySelector('button:not([type="button"])');
+  if (b?.disabled) return;
+  const data = Object.fromEntries(new FormData(form));
+  await busy(b, async () => {
+    try {
+      if (form.id === "detailsForm") {
+        draft = { ...draft, ...data };
+        await go("checks");
+      }
+      if (form.id === "checksForm") {
+        const checks = catalogue.find((m) => m.id === draft.module).checks;
+        draft.diagnostic_answers = {};
+        for (const c of checks) {
+          if (data[c.key] !== "")
+            draft.diagnostic_answers[c.key] =
+              c.type === "bool"
+                ? data[c.key] === "true"
+                : c.type === "number"
+                  ? Number(data[c.key])
+                  : data[c.key];
+        }
+        diagnosis = await send("/api/diagnostics/run", {
+          module_id: draft.module,
+          answers: draft.diagnostic_answers,
+        });
+        await go("result");
+      }
+      if (form.id === "resultForm") {
+        draft = {
+          ...draft,
+          ...data,
+          approved_by_engineer: form.elements.approved_by_engineer.checked,
+          diagnosis: diagnosis.title,
+          confidence: diagnosis.confidence,
+          evidence: diagnosis.evidence,
+          recommendation: diagnosis.recommendation,
+          work_order_id: workOrderId,
+        };
+        activeJob = await send(
+          "/api/jobs" + (editing ? "/" + editing : ""),
+          draft,
+          editing ? "PATCH" : "POST",
+        );
+        editing = activeJob.id;
+        await go("report");
+        toast(
+          "Inspection saved. Add photos or record the repair outcome below.",
+        );
+      }
+      if (form.id === "customerForm") {
+        await send("/api/customers", data);
+        $("modal").close();
+        await go("customers");
+        toast("Customer added");
+      }
+      if (form.id === "orderForm") {
+        data.customer_id = data.customer_id || null;
+        data.job_id = data.job_id || null;
+        data.assigned_engineer_id = data.assigned_engineer_id
+          ? Number(data.assigned_engineer_id)
+          : null;
+        await send(
+          "/api/work-orders" + (form.dataset.id ? "/" + form.dataset.id : ""),
+          data,
+          form.dataset.id ? "PATCH" : "POST",
+        );
+        $("modal").close();
+        await go("schedule");
+        toast("Visit saved");
+      }
+      if (form.id === "approvalForm") {
+        await send("/api/approvals", {
+          job_id: activeJob.id,
+          approval_type: data.approval_type,
+          description: data.description,
+          estimated_cost_pence: Math.round(Number(data.cost) * 100),
+        });
+        $("modal").close();
+        await go("approvals");
+        toast("Approval requested");
+      }
+      if (form.id === "decisionForm") {
+        await send(`/api/approvals/${form.dataset.id}/decision`, data);
+        $("modal").close();
+        await go("approvals");
+        toast("Decision recorded");
+      }
+      if (form.id === "learningForm") {
+        await send(`/api/jobs/${activeJob.id}/learning`, {
+          ...data,
+          resolved: data.resolved === "true",
+          repeat_visit_required: data.repeat_visit_required === "true",
+          engineer_rating: Number(data.engineer_rating),
+          anonymised_for_learning:
+            form.elements.anonymised_for_learning.checked,
+        });
+        $("modal").close();
+        await go("learning");
+        toast("Repair outcome saved");
+      }
+      if (form.id === "photoForm") {
+        const fd = new FormData(form);
+        const file = fd.get("photo");
+        if (file.size > 10 * 1024 * 1024)
+          throw Error("Choose an image smaller than 10 MB.");
+        const upload = new FormData();
+        upload.append("phase", data.phase);
+        upload.append("file", file);
+        await api(`/api/jobs/${activeJob.id}/photos`, {
+          method: "POST",
+          body: upload,
+        });
+        await showReport(activeJob.id);
+        toast("Photo evidence attached");
+      }
+    } catch (err) {
+      const error = form.querySelector(".form-error");
+      if (error) error.textContent = err.message;
+      throw err;
+    }
+  });
+});
+document.addEventListener("change", async (e) => {
+  if (e.target.dataset.orderStatus) {
+    await busy(null, async () => {
+      try {
+        await api(
+          `/api/work-orders/${e.target.dataset.orderStatus}/status?status=${encodeURIComponent(e.target.value)}`,
+          { method: "PATCH" },
+        );
+        toast("Visit status updated");
+      } finally {
+        await go("schedule");
+      }
+    });
+  }
+  if (e.target.id === "jobFilter") filterJobs();
+});
+function filterJobs() {
+  const q = $("jobSearch").value.toLowerCase(),
+    status = $("jobFilter").value;
+  $("jobResults").innerHTML = jobTable(
+    pages.jobs.cache.filter(
+      (j) =>
+        (j.customer + " " + j.reference + " " + j.diagnosis + " " + j.product)
+          .toLowerCase()
+          .includes(q) &&
+        (!status || j.outcome === status),
+    ),
+  );
+}
+document.addEventListener("input", (e) => {
+  if (e.target.id === "jobSearch") filterJobs();
+  if (e.target.id === "guideSearch") {
+    const q = e.target.value.toLowerCase();
+    $("guideResults").innerHTML = guideCards(
+      pages.library.cache.filter((g) =>
+        (g.title + " " + g.summary).toLowerCase().includes(q),
+      ),
+    );
+  }
+});
+(async () => {
+  renderAuth();
+  try {
+    config = await api("/api/config");
+    $("demoAccess").classList.toggle("hidden", !config.demo_enabled);
+    if (token) {
+      const u = await api("/api/me");
+      await enter({ token, user: u });
+    }
+  } catch (e) {
+    signOut();
+    if (!/bearer|token/i.test(e.message)) toast(e.message, true);
+  }
+})();
+// Preserve entered values when moving backwards through the inspection wizard.
+document.addEventListener("input", (e) => {
+  const f = e.target.form;
+  if (!f || !e.target.name) return;
+  if (["detailsForm", "resultForm"].includes(f.id))
+    draft[e.target.name] =
+      e.target.type === "checkbox" ? e.target.checked : e.target.value;
+  if (f.id === "checksForm") {
+    const c = catalogue
+      .find((m) => m.id === draft.module)
+      ?.checks.find((c) => c.key === e.target.name);
+    if (!c) return;
+    draft.diagnostic_answers ??= {};
+    if (e.target.value === "") delete draft.diagnostic_answers[c.key];
+    else
+      draft.diagnostic_answers[c.key] =
+        c.type === "bool"
+          ? e.target.value === "true"
+          : c.type === "number"
+            ? Number(e.target.value)
+            : e.target.value;
+  }
+});
+document.addEventListener("change", (e) => {
+  if (e.target.form?.id === "detailsForm" && e.target.name === "module")
+    draft.diagnostic_answers = {};
+});
+// Private source documents are loaded only through company-authorised endpoints.
+pages.library = async function () {
+  const [guides, docs] = await Promise.all([
+    api("/api/guides"),
+    api("/api/documents"),
+  ]);
+  pages.library.cache = guides;
+  pages.library.documents = docs;
+  const makers = [...new Set(docs.map((d) => d.manufacturer))].sort();
+  const categories = [...new Set(docs.map((d) => d.category))].sort();
+  return (
+    head(
+      "KNOWLEDGE AT THE POINT OF WORK",
+      "Technical library",
+      "Search your field guides, manufacturer manuals and repair videos.",
+    ) +
+    `<div class="stats">${stat("Source documents", docs.filter((d) => d.media_type !== "video").length, "Private company library")}${stat("Repair videos", docs.filter((d) => d.media_type === "video").length, "Original training material")}${stat("PDF pages", docs.reduce((n, d) => n + d.page_count, 0).toLocaleString(), "Text search where available")}${stat("Field guides", guides.length, "Practical repair sequences")}</div><div class="toolbar"><input id="documentSearch" aria-label="Search technical documents" placeholder="Search manuals, systems or words inside PDFs…"><select id="manufacturerFilter" aria-label="Manufacturer filter">${options(makers, "", "All manufacturers")}</select><select id="categoryFilter" aria-label="Document category">${options(categories, "", "All categories")}</select></div><div class="notice">Private source library. Issue and system labels come from the supplied filenames. Documents are indexed for reference; their technical values have not been approved as diagnostic rules.</div><div id="documentResults" class="cards">${documentCards(docs)}</div><div class="panel-head" style="margin-top:38px"><h2>Field guides</h2></div><div class="toolbar"><input id="guideSearch" aria-label="Search guides" placeholder="Search field guides…"></div><div class="cards" id="guideResults">${guideCards(guides)}</div>`
+  );
+};
+function documentCards(docs) {
+  return docs.length
+    ? docs
+        .map(
+          (d) =>
+            `<article class="panel"><div class="eyebrow">${esc(d.manufacturer)} / ${d.media_type === "video" ? "VIDEO" : "PDF"}</div><h3>${esc(d.title)}</h3><p class="muted">${esc(d.category)}</p><div class="actions">${(d.systems || []).map(badge).join("")}${d.page_count ? badge(d.page_count + " pages") : ""}</div><p><small>${esc(d.revision)} · ${(d.size_bytes / 1048576).toFixed(1)} MB</small></p>${d.media_type !== "video" && !d.text_indexed ? '<p class="muted">Image-only document: browse pages or search its title. Text extraction needs review or OCR.</p>' : ""}${
+              d.matches?.length
+                ? `<div class="search-matches">${d.matches
+                    .slice(0, 3)
+                    .map(
+                      (m) =>
+                        `<p><button data-document="${d.id}" data-page="${m.page}">Page ${m.page} ↗</button><small>${esc(m.excerpt)}…</small></p>`,
+                    )
+                    .join("")}</div>`
+                : ""
+            }<button class="primary" data-document="${d.id}">${d.media_type === "video" ? "Watch video" : "Open PDF"} ↗</button></article>`,
+        )
+        .join("")
+    : empty(
+        "No matching source documents",
+        "Try a broader search or another manufacturer.",
+      );
+}
+let documentRequest = 0;
+async function searchDocuments() {
+  const request = ++documentRequest;
+  const query = new URLSearchParams({
+    q: $("documentSearch").value,
+    manufacturer: $("manufacturerFilter").value,
+    category: $("categoryFilter").value,
+  });
+  try {
+    const docs = await api("/api/documents?" + query);
+    if (screen === "library" && request === documentRequest)
+      $("documentResults").innerHTML = documentCards(docs);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+document.addEventListener("input", (e) => {
+  if (e.target.id === "documentSearch") {
+    clearTimeout(searchDocuments.timer);
+    searchDocuments.timer = setTimeout(searchDocuments, 250);
+  }
+});
+document.addEventListener("change", (e) => {
+  if (["manufacturerFilter", "categoryFilter"].includes(e.target.id))
+    searchDocuments();
+});
 
-async function learning(){
- let m=await api("/api/learning/metrics");
- $("lRecords").textContent=m.records;$("lAccuracy").textContent=m.diagnosis_confirmation_rate+"%";$("lResolution").textContent=m.repair_resolution_rate+"%";
- $("lStatus").textContent="Dataset status: "+m.learning_status.replaceAll("_"," ");
- $("lRepeat").textContent="Repeat visit rate: "+m.repeat_visit_rate+"% · Average engineer rating: "+m.average_engineer_rating;
- let ps=await api("/api/learning/patterns"),c=$("patternList");c.innerHTML="";
- ps.forEach(p=>{let d=document.createElement("div");d.className="job";d.innerHTML=`<b>${p.predicted_diagnosis}</b><small>${p.cases} confirmed case(s)</small><p>Diagnosis confirmation: ${p.confirmation_rate}%<br>Repair resolution: ${p.resolution_rate}%</p>`;c.appendChild(d)})
+let viewingDocument = null,
+  viewingPage = 1,
+  viewerRequest = 0;
+async function renderDocumentPage(page) {
+  const request = ++viewerRequest;
+  viewingPage = page;
+  $("documentPageLabel").textContent =
+    `PDF page ${page} of ${viewingDocument.page_count}`;
+  $("documentPage").innerHTML =
+    '<div class="loading">Rendering source page…</div>';
+  $("previousPage").disabled = page <= 1;
+  $("nextPage").disabled = page >= viewingDocument.page_count;
+  try {
+    const response = await api(
+      `/api/documents/${viewingDocument.id}/pages/${page}`,
+    );
+    const url = URL.createObjectURL(await response.blob());
+    photoUrls.push(url);
+    if (request !== viewerRequest) return;
+    $("documentPage").innerHTML =
+      `<img src="${url}" alt="${esc(viewingDocument.title)}, PDF page ${page}" style="display:block;width:100%;height:auto">`;
+  } catch (e) {
+    $("documentPage").innerHTML = empty(
+      "This page could not be rendered",
+      e.message,
+    );
+  }
 }
-$("learningNav").onclick=()=>go("learning");
-
-async function captureLearning(job){
- let confirmed=prompt("Engineer-confirmed diagnosis:",job.diagnosis||"");
- if(confirmed===null)return;
- let repair=prompt("Actual repair carried out:",job.work_done||"");
- if(repair===null)return;
- let resolved=confirm("Did this repair resolve the fault?");
- let repeat=resolved?false:confirm("Is a repeat visit required?");
- let rating=prompt("Rate FenIQ's usefulness for this diagnosis (1-5):","4");
- let feedback=prompt("Optional engineer feedback:","");
- await api(`/api/jobs/${job.id}/learning`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-   confirmed_diagnosis:confirmed,actual_repair:repair,resolved:resolved,repeat_visit_required:repeat,
-   remake_or_part_correct:"Not applicable",engineer_rating:Number(rating||0),engineer_feedback:feedback||"",anonymised_for_learning:true
- })});
- alert("Repair outcome added to FenIQ learning data.");
-}
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.document) {
+    await busy(b, async () => {
+      const d = pages.library.documents.find(
+        (x) => x.id === b.dataset.document,
+      );
+      if (!d) throw Error("Document unavailable. Reload the library.");
+      viewingDocument = d;
+      if (d.media_type === "video") {
+        const r = await api(d.url),
+          url = URL.createObjectURL(await r.blob());
+        photoUrls.push(url);
+        openModal(
+          d.title,
+          `<p class="muted">${esc(d.manufacturer)} · Private training video</p><video controls playsinline preload="metadata" style="width:100%;max-height:65vh" src="${url}"></video><p><button data-action="download-document">Download original ↓</button></p>`,
+        );
+      } else {
+        openModal(
+          d.title,
+          `<p class="muted">${esc(d.manufacturer)} · ${esc(d.revision)} · Private source</p><div class="actions"><button id="previousPage" data-action="previous-page">← Previous</button><span id="documentPageLabel"></span><button id="nextPage" data-action="next-page">Next →</button><button data-action="download-document">Original PDF ↓</button></div><div id="documentPage" style="margin-top:16px;min-height:260px"></div><p class="muted">PDF page numbers can differ from printed page/section labels.</p><small>Source integrity: ${esc(d.sha256.slice(0, 16))}…</small>`,
+        );
+        await renderDocumentPage(Number(b.dataset.page || 1));
+      }
+    });
+    return;
+  }
+  if (b.dataset.action === "previous-page")
+    await renderDocumentPage(Math.max(1, viewingPage - 1));
+  if (b.dataset.action === "next-page")
+    await renderDocumentPage(
+      Math.min(viewingDocument.page_count, viewingPage + 1),
+    );
+  if (b.dataset.action === "download-document")
+    await busy(b, async () => {
+      const r = await api(viewingDocument.url),
+        url = URL.createObjectURL(await r.blob()),
+        a = document.createElement("a");
+      photoUrls.push(url);
+      a.href = url;
+      a.download = viewingDocument.source_filename;
+      a.click();
+    });
+});

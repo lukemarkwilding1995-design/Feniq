@@ -21,8 +21,10 @@ def metrics(db: Session, company_id: int, engineer_id=None):
       "learning_status":"baseline" if total<50 else "early_dataset" if total<250 else "growing_dataset"
     }
 
-def patterns(db: Session, company_id: int):
-    rows=db.scalars(select(LearningRecord).where(LearningRecord.company_id==company_id)).all()
+def patterns(db: Session, company_id: int, engineer_id=None):
+    query=select(LearningRecord).where(LearningRecord.company_id==company_id)
+    if engineer_id: query=query.where(LearningRecord.engineer_id==engineer_id)
+    rows=db.scalars(query).all()
     groups=defaultdict(lambda:{"count":0,"resolved":0,"confirmed":0})
     for r in rows:
         key=r.predicted_diagnosis or "Unknown"
