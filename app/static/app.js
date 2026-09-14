@@ -672,9 +672,11 @@ async function orderForm(id = null) {
 async function outcomeForm() {
   const j = activeJob;
   const l = await api(`/api/jobs/${j.id}/learning`);
+  const history = await api(`/api/jobs/${j.id}/outcome-history`);
+  const latest = history.at(-1);
   openModal(
     "Record repair outcome",
-    `<form id="learningForm">${field("Engineer-confirmed diagnosis", "confirmed_diagnosis", l?.confirmed_diagnosis || j.diagnosis, "text", "required")}${area("Actual repair carried out", "actual_repair", l?.actual_repair || j.work_done, "required")}<div class="form-grid">${select(
+    `<form id="learningForm"><input type="hidden" name="expected_version" value="${latest?.version || 0}">${area("Final checks and observed results (required if resolved)", "verification_checks", latest?.payload.verification_checks || "", 'maxlength="10000"')}${area("Reason for correcting the previous outcome", "change_reason", "", latest ? 'required maxlength="2000"' : 'maxlength="2000"')}${field("Engineer-confirmed diagnosis", "confirmed_diagnosis", l?.confirmed_diagnosis || j.diagnosis, "text", "required")}${area("Actual repair carried out", "actual_repair", l?.actual_repair || j.work_done, "required")}<div class="form-grid">${select(
       "Did the repair resolve the fault?",
       "resolved",
       [
@@ -701,7 +703,18 @@ async function outcomeForm() {
         { id: 5, name: "5 · Excellent" },
       ],
       l?.engineer_rating || 3,
-    )}</div>${area("Feedback", "engineer_feedback", l?.engineer_feedback)}<label class="check"><input type="checkbox" name="anonymised_for_learning" ${l?.anonymised_for_learning ? "checked" : ""}>Allow this outcome to be used in anonymised learning.</label><p class="error form-error" role="alert"></p><button class="primary">Save outcome</button></form>`,
+    )}</div>${area("Feedback", "engineer_feedback", l?.engineer_feedback)}<label class="check"><input type="checkbox" name="anonymised_for_learning" ${l?.anonymised_for_learning ? "checked" : ""}>Permit consideration for future anonymised learning. This does not anonymise this record or automatically update any rules.</label><p class="error form-error" role="alert"></p><button class="primary">Save outcome</button></form><h3>Retained outcome history</h3>${
+      history.length
+        ? history
+            .slice()
+            .reverse()
+            .map(
+              (r) =>
+                `<div class="visit"><strong>Revision ${r.version} - ${esc(new Date(r.created_at).toLocaleString())}</strong><p>${esc(r.payload.actual_repair)}</p><p>Final checks: ${esc(r.payload.verification_checks || "Not recorded in legacy feedback")}</p><p>${r.payload.resolved ? "Reported resolved" : "Not resolved"} | ${r.integrity_valid ? "Integrity checked" : "Integrity check failed"}</p><small>${esc(r.payload.change_reason || r.payload.origin)}</small></div>`,
+            )
+            .join("")
+        : "<p>No retained revisions yet. Existing feedback will be preserved on its next correction.</p>"
+    }`,
   );
 }
 document.addEventListener("click", async (e) => {

@@ -11,6 +11,8 @@ from sqlalchemy import select, func, update
 from sqlalchemy.orm import Session
 
 from .db import Base, engine, get_db
+from . import outcomes
+from sqlalchemy.exc import IntegrityError
 from .models import Company, User, Job, Photo, LearningRecord, Customer, WorkOrder, ApprovalRequest, Notification, AuditEvent
 from .security import hash_password, verify_password, create_token, current_user
 from .vision import analyse_image
@@ -315,14 +317,28 @@ class LearningIn(BaseModel):
     remake_or_part_correct: str="Not applicable"
     engineer_rating: int=0
     engineer_feedback: str=""
-    anonymised_for_learning: bool=True
+    anonymised_for_learning: bool=False
+    verification_checks: str=Field(default="",max_length=10000)
+    change_reason: str=Field(default="",max_length=2000)
+    expected_version: int=Field(default=0,ge=0)
 
 @app.post("/api/jobs/{job_id}/learning")
 def save_learning(job_id: str, data: LearningIn, user: User = Depends(user_dep), db: Session = Depends(get_db)):
     job=db.get(Job,job_id);check_job(job,user)
     if job.engineer_id!=user.id and user.role!="admin":
         raise HTTPException(403,"Only the assigned engineer or admin can confirm the repair outcome")
+    prior=outcomes.history(db,job)
+    version=prior[-1].version if prior else 0
+    if data.expected_version!=version:raise HTTPException(409,"Outcome changed. Reopen the form before saving.")
+    if not data.confirmed_diagnosis.strip() or not data.actual_repair.strip():raise HTTPException(422,"Record the diagnosis and actual repair")
+    if data.resolved and not data.verification_checks.strip():raise HTTPException(422,"Record final checks and observed results before marking resolved")
+    if version and not data.change_reason.strip():raise HTTPException(422,"Explain the correction to the previous outcome")
     existing=db.scalar(select(LearningRecord).where(LearningRecord.job_id==job.id))
+    if existing and not prior:
+        legacy={key:getattr(existing,key) for key in ('predicted_diagnosis','predicted_confidence','confirmed_diagnosis','actual_repair','resolved','repeat_visit_required','engineer_feedback','anonymised_for_learning')}
+        legacy['origin']='Legacy feedback captured before correction; original author/time not established by this capture'
+        outcomes.append(db,job,user.id,1,legacy);version=1
+
     if existing:
         record=existing
     else:
@@ -341,8 +357,21 @@ def save_learning(job_id: str, data: LearningIn, user: User = Depends(user_dep),
     record.engineer_rating=max(0,min(5,data.engineer_rating))
     record.engineer_feedback=data.engineer_feedback
     record.anonymised_for_learning=data.anonymised_for_learning
-    db.commit()
+    snapshot=capture_snapshot(db,job,user.id)
+    payload=data.model_dump(exclude={'expected_version'})
+    payload.update(origin='Engineer outcome submission',snapshot_id=snapshot.id,snapshot_sha256=snapshot.sha256,predicted_diagnosis=record.predicted_diagnosis,predicted_confidence=record.predicted_confidence,parts_recorded=job.parts_required,governance='Retained evidence; not anonymised or approved for model training')
+    outcomes.append(db,job,user.id,version+1,payload)
+    from .audit import log
+    log(db,user.company_id,user.id,'outcome.revision_saved','job',job.id,{'version':version+1})
+    try:db.commit()
+    except IntegrityError:
+        db.rollback();raise HTTPException(409,"Outcome changed. Reopen the form before saving.")
     return {"ok":True,"record_id":record.id}
+
+@app.get('/api/jobs/{job_id}/outcome-history')
+def outcome_history(job_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):
+    job=db.get(Job,job_id);check_job(job,user)
+    return [outcomes.serialise(row) for row in outcomes.history(db,job)]
 
 @app.get("/api/learning/metrics")
 def get_learning_metrics(user: User = Depends(user_dep), db: Session = Depends(get_db)):
