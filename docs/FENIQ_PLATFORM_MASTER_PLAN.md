@@ -159,3 +159,7 @@ Migration 0004 adds explicit sites under customers, persistent product identitie
 ## Technical Case update
 
 Migration 0005 adds owned investigations with retained event history and optimistic version checks. Cases link to existing passports/inspections without copying restricted reports to shared timelines. Resolution does not authorise commercial work. Twenty-one tests pass. Next bounded work: controlled manufacturer-source review and verified evidence provenance, while keeping external communications and unimplemented production features clearly scoped.
+
+## Controlled source review update
+
+Migration 0006 adds retained company review decisions tied to exact private PDF hashes, reviewed pages, revision and declared applicability. Imports remain pending until a human administrator records a review. Changed bytes invalidate reference approval. This is reference governance, not automatic verification of numerical specifications. Twenty-two tests pass. Next: provenance-preserving reviewed page citations attached to inspections, then controlled diagnostic retrieval.

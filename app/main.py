@@ -627,9 +627,12 @@ def client_config():
     return {"demo_enabled":os.getenv("FENIQ_DEMO","0")=="1","vision_enabled":bool(os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_VISION_MODEL"))}
 
 @app.get("/api/documents")
-def technical_documents(q:str="",category:str="",system:str="",manufacturer:str="",user:User=Depends(user_dep)):
+def technical_documents(q:str="",category:str="",system:str="",manufacturer:str="",user:User=Depends(user_dep),db:Session=Depends(get_db)):
     from .documents import catalogue
-    return catalogue(user.company_id,q,category,system,manufacturer)
+    from .source_reviews import summary
+    documents=catalogue(user.company_id,q,category,system,manufacturer)
+    for document in documents:document["source_review"]=summary(db,user.company_id,document)
+    return documents
 
 @app.get("/api/documents/{document_id}/file")
 def technical_document_file(document_id:str,user:User=Depends(user_dep)):
@@ -655,3 +658,6 @@ register_passports(app,user_dep,check_job)
 
 from .cases import register as register_cases
 register_cases(app,user_dep,check_job)
+
+from .source_reviews import register as register_source_reviews
+register_source_reviews(app,user_dep)

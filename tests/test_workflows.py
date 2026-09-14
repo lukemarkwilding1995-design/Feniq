@@ -50,6 +50,40 @@ class WorkflowTests(unittest.TestCase):
         site=self.client.post('/api/sites',headers=self.admin,json={'customer_id':customer['id'],'name':'Site A','address':'Fictional site'}).json()
         return self.client.post('/api/passports',headers=self.admin,json={'site_id':site['id'],'label':'Kitchen window','product':'Window'}).json()
 
+    def test_controlled_source_review_history_and_changed_bytes(self):
+        import hashlib
+        from reportlab.pdfgen.canvas import Canvas
+        library=TEST_PATH/'review-library';library.mkdir(exist_ok=True)
+        path=library/'fictional.pdf';canvas=Canvas(str(path));canvas.drawString(40,700,'Fictional test manufacturer guide - Revision 1');canvas.showPage();canvas.save()
+        digest=hashlib.sha256(path.read_bytes()).hexdigest()
+        (library/'manifest.json').write_text(json.dumps({'documents':[{'id':'review-test','title':'Fictional guide','manufacturer':'Test only','revision':'1','category':'Test','filename':'fictional.pdf','sha256':digest,'company_ids':[1],'page_count':1,'pages':[]}]}),encoding='utf-8')
+        os.environ['FENIQ_DOCUMENT_ROOT']=str(library)
+        try:
+            url='/api/documents/review-test/reviews'
+            data={'document_sha256':digest,'status':'Approved for reference','title':'Fictional guide','manufacturer':'Test only','revision':'1','applicability':'Fictional product only; not a real specification','page_start':1,'page_end':1,'note':'Synthetic fixture review','attested':False}
+            self.assertEqual(self.client.post(url,headers=self.engineer,json=data).status_code,403)
+            self.assertEqual(self.client.post(url,headers=self.admin,json=data).status_code,422)
+            data['attested']=True
+            approved=self.client.post(url,headers=self.admin,json=data)
+            self.assertEqual(approved.status_code,200)
+            self.assertTrue(self.client.get('/api/documents',headers=self.engineer).json()[0]['source_review']['reference_approved'])
+            self.assertEqual(self.client.post(url,headers=self.admin,json=data).status_code,409)
+            path.write_bytes(path.read_bytes()+b'\nchanged source bytes')
+            self.assertFalse(self.client.get('/api/documents',headers=self.admin).json()[0]['source_review']['reference_approved'])
+            data['previous_id']=approved.json()['id']
+            self.assertEqual(self.client.post(url,headers=self.admin,json=data).status_code,409)
+            path.write_bytes(path.read_bytes().removesuffix(b'\nchanged source bytes'))
+            data['status']='Withdrawn';data['note']='Reference approval withdrawn after further review'
+            self.assertEqual(self.client.post(url,headers=self.admin,json=data).status_code,200)
+            result=self.client.get(url,headers=self.admin).json()
+            self.assertEqual(len(result['history']),2)
+            self.assertFalse(result['current']['reference_approved'])
+            with self.assertRaises(IntegrityError):
+                with engine.begin() as connection:connection.execute(text('DELETE FROM source_reviews'))
+            other=self.client.post('/api/register-company',json={'company_name':'External review','admin_name':'Other','email':'review-other@example.com','password':'strong-password'}).json()
+            self.assertEqual(self.client.get(url,headers={'Authorization':'Bearer '+other['token']}).status_code,404)
+        finally:os.environ.pop('FENIQ_DOCUMENT_ROOT',None)
+
     def test_technical_case_resolution_and_version_guards(self):
         job=self.job().json()
         created=self.client.post('/api/cases',headers=self.engineer,json={'title':'Recurring catch','description':'Investigate repeat fault','job_id':job['id']})

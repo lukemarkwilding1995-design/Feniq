@@ -1,0 +1,7 @@
+[
+  "\nCREATE TABLE source_reviews (\n\tid VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\tdocument_id VARCHAR(100) NOT NULL, \n\tsequence INTEGER NOT NULL, \n\treviewer_id INTEGER NOT NULL, \n\tdocument_sha256 VARCHAR(64) NOT NULL, \n\tstatus VARCHAR(40) NOT NULL, \n\ttitle VARCHAR(300) NOT NULL, \n\tmanufacturer VARCHAR(180) NOT NULL, \n\trevision VARCHAR(180) NOT NULL, \n\tapplicability TEXT NOT NULL, \n\tpage_start INTEGER NOT NULL, \n\tpage_end INTEGER NOT NULL, \n\tnote TEXT NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\tPRIMARY KEY (id), \n\tCONSTRAINT uq_source_review_sequence UNIQUE (company_id, document_id, sequence), \n\tFOREIGN KEY(company_id) REFERENCES companies (id), \n\tFOREIGN KEY(reviewer_id) REFERENCES users (id)\n)\n\n",
+  "CREATE INDEX ix_source_reviews_company_id ON source_reviews (company_id)",
+  "CREATE INDEX ix_source_reviews_document_id ON source_reviews (document_id)",
+  "CREATE TRIGGER source_reviews_no_update BEFORE UPDATE ON source_reviews BEGIN SELECT RAISE(ABORT, 'Source review history is immutable'); END",
+  "CREATE TRIGGER source_reviews_no_delete BEFORE DELETE ON source_reviews BEGIN SELECT RAISE(ABORT, 'Source review history is immutable'); END"
+]

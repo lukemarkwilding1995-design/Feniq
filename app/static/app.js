@@ -865,6 +865,7 @@ document.addEventListener("submit", async (e) => {
   const form = e.target;
   if (
     form.id === "authForm" ||
+    form.id === "sourceReviewForm" ||
     form.id.startsWith("case") ||
     form.id.startsWith("passport") ||
     form.id === "siteForm"
@@ -1098,7 +1099,7 @@ function documentCards(docs) {
     ? docs
         .map(
           (d) =>
-            `<article class="panel"><div class="eyebrow">${esc(d.manufacturer)} / ${d.media_type === "video" ? "VIDEO" : "PDF"}</div><h3>${esc(d.title)}</h3><p class="muted">${esc(d.category)}</p><div class="actions">${(d.systems || []).map(badge).join("")}${d.page_count ? badge(d.page_count + " pages") : ""}</div><p><small>${esc(d.revision)} · ${(d.size_bytes / 1048576).toFixed(1)} MB</small></p>${d.media_type !== "video" && !d.text_indexed ? '<p class="muted">Image-only document: browse pages or search its title. Text extraction needs review or OCR.</p>' : ""}${
+            `<article class="panel"><div class="eyebrow">${esc(d.manufacturer)} / ${d.media_type === "video" ? "VIDEO" : "PDF"}</div><h3>${esc(d.title)}</h3>${badge(d.source_review?.status || "Pending review")}${d.media_type !== "video" ? `<p><button data-source-review="${d.id}">Source review</button></p>` : ""}<p class="muted">${esc(d.category)}</p><div class="actions">${(d.systems || []).map(badge).join("")}${d.page_count ? badge(d.page_count + " pages") : ""}</div><p><small>${esc(d.revision)} · ${(d.size_bytes / 1048576).toFixed(1)} MB</small></p>${d.media_type !== "video" && !d.text_indexed ? '<p class="muted">Image-only document: browse pages or search its title. Text extraction needs review or OCR.</p>' : ""}${
               d.matches?.length
                 ? `<div class="search-matches">${d.matches
                     .slice(0, 3)
