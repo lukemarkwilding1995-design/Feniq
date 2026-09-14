@@ -483,7 +483,10 @@ const pages = {
   },
   async report() {
     const j = activeJob;
-    const snapshot = await api(`/api/jobs/${j.id}/diagnostic-snapshot`);
+    const [snapshot, outcomes] = await Promise.all([
+      api(`/api/jobs/${j.id}/diagnostic-snapshot`),
+      api(`/api/jobs/${j.id}/outcome-history`),
+    ]);
     return (
       head(
         "INSPECTION RECORD",
@@ -492,6 +495,7 @@ const pages = {
         `<div class="actions"><button data-action="edit-job">Edit inspection</button><button class="primary" data-action="pdf">Download PDF ↓</button></div>`,
       ) +
       snapshotPanel(snapshot) +
+      outcomeSummary(outcomes) +
       (await citationPanel(j)) +
       `<article class="panel"><div class="panel-head"><h2>FenIQ <small> / SERVICE REPORT</small></h2>${badge(j.approved_by_engineer ? "Engineer approved" : "Review required")}</div><div class="report-meta">${[
         ["Customer / site", j.customer],
@@ -525,6 +529,13 @@ const pages = {
     );
   },
 };
+function outcomeSummary(rows) {
+  if (!rows.length)
+    return '<section class="panel" style="margin-bottom:20px"><h3>Repair outcome</h3><p>No retained repair outcome yet.</p></section>';
+  const row = rows.at(-1);
+  const p = row.payload;
+  return `<section class="panel" style="margin-bottom:20px"><div class="panel-head"><h3>Latest repair outcome</h3>${badge(p.resolved ? "Reported resolved" : "Not resolved")}</div><p><b>Actual repair:</b> ${esc(p.actual_repair)}</p><p><b>Final checks:</b> ${esc(p.verification_checks || "Not recorded in legacy feedback")}</p><p><b>Confirmed diagnosis:</b> ${esc(p.confirmed_diagnosis)}</p><small>Retained revision ${row.version} of ${rows.length} · ${row.integrity_valid ? "Integrity checked" : "Integrity check failed"}. Earlier revisions remain available from Record repair outcome.</small></section>`;
+}
 function snapshotPanel(snapshot) {
   if (!snapshot)
     return '<div class="notice">Legacy inspection: no original diagnostic snapshot is available. Its current record will be preserved before the next edit or first repair feedback.</div>';

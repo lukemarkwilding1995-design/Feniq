@@ -179,3 +179,7 @@ Reviewed-evidence retrieval now supports further batches with query/source snaps
 ## Retained outcome revisions
 
 Migration 0008 adds append-only repair feedback history and original diagnostic snapshot linkage. Corrections need reasons and current revision; resolved feedback needs final-check notes. Existing metrics use the latest projection. Twenty-five tests pass. This advances Wave 1 outcome governance but does not complete anonymisation, reviewed dataset promotion or automatic final-job recording. Next: report/passport integration and structured verification.
+
+## Outcome reporting and passport integration
+
+Inspection screens and PDFs now show the latest retained repair result alongside the immutable original diagnosis, including final checks and integrity metadata. Linked Product Passports expose the latest authorised outcome and revision count without copying it into editable lifecycle notes. Twenty-five tests pass, including passport and PDF integration. Next: versioned structured verification checks and repeat-failure analysis.

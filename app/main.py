@@ -533,7 +533,9 @@ def pdf(job_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):
     job=db.get(Job,job_id);check_job(job,user)
     photos=db.scalars(select(Photo).where(Photo.job_id==job.id)).all()
     from .citations import citation_records
-    buf=build_report(job,job.engineer.name,photos,UPLOAD_DIR,citation_records(db,job))
+    outcome_rows=outcomes.history(db,job)
+    current_outcome=outcomes.serialise(outcome_rows[-1]) if outcome_rows else None
+    buf=build_report(job,job.engineer.name,photos,UPLOAD_DIR,citation_records(db,job),current_outcome)
     return StreamingResponse(buf,media_type="application/pdf",headers={"Content-Disposition":f'inline; filename="FenIQ-{job.id[:8]}.pdf"'})
 
 @app.get("/api/analytics")

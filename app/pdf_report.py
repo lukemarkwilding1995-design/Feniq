@@ -10,7 +10,7 @@ from reportlab.lib.units import mm
 from PIL import Image as PILImage
 
 
-def build_report(job, engineer_name, photos, upload_dir: Path, citations=None):
+def build_report(job, engineer_name, photos, upload_dir: Path, citations=None, outcome=None):
     buf=BytesIO()
     ink=colors.HexColor('#163e31')
     styles=getSampleStyleSheet()
@@ -44,6 +44,21 @@ def build_report(job, engineer_name, photos, upload_dir: Path, citations=None):
     story.extend([Paragraph('Customer sign-off',heading),text(job.signature or 'Not signed')])
     if not job.approved_by_engineer:
         story.extend([Spacer(1,3*mm),text('Diagnosis has not yet been marked as engineer reviewed.',small)])
+    if outcome:
+        payload=outcome['payload']
+        story.extend([PageBreak(),Paragraph('Latest repair outcome',heading),
+                      text(f"Retained revision {outcome['version']} | {'Integrity checked' if outcome['integrity_valid'] else 'Integrity check failed'}"),
+                      Paragraph('Original predicted diagnosis',heading),text(payload.get('predicted_diagnosis')),
+                      Paragraph('Engineer-confirmed diagnosis',heading),text(payload.get('confirmed_diagnosis')),
+                      Paragraph('Actual repair',heading),text(payload.get('actual_repair')),
+                      Paragraph('Final checks and observed results',heading),text(payload.get('verification_checks')),
+                      Paragraph('Reported result',heading),text('Resolved' if payload.get('resolved') else 'Not resolved'),
+                      text('Repeat visit required: '+('Yes' if payload.get('repeat_visit_required') else 'No'))])
+        if payload.get('change_reason'):
+            story.extend([Paragraph('Reason for correction',heading),text(payload['change_reason'])])
+        story.extend([text('This is the latest engineer-submitted outcome. Earlier revisions remain in the audit history.',small),
+                      text('Original diagnosis SHA-256: '+payload.get('snapshot_sha256','Not recorded'),small),
+                      text('Outcome SHA-256: '+outcome['sha256'],small)])
     if citations:
         story.extend([PageBreak(), Paragraph('Source citations',heading)])
         for citation in citations:

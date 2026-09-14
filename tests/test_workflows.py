@@ -51,7 +51,10 @@ class WorkflowTests(unittest.TestCase):
         return self.client.post('/api/passports',headers=self.admin,json={'site_id':site['id'],'label':'Kitchen window','product':'Window'}).json()
 
     def test_outcome_revisions_verification_and_corrections(self):
+        from pypdf import PdfReader
         job=self.job().json();url='/api/jobs/'+job['id']
+        product=self.passport()
+        self.assertEqual(self.client.post('/api/passports/'+product['id']+'/inspections',headers=self.engineer,json={'job_id':job['id']}).status_code,200)
         data={'confirmed_diagnosis':'Keep interference','actual_repair':'Adjusted keep','resolved':True}
         self.assertEqual(self.client.post(url+'/learning',headers=self.engineer,json=data).status_code,422)
         data['verification_checks']='Repeated opening and closing without catching'
@@ -68,6 +71,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(rows),2);self.assertEqual(rows[0],first[0])
         self.assertFalse(rows[1]['payload']['resolved'])
         self.assertEqual(rows[0]['payload']['snapshot_sha256'],rows[1]['payload']['snapshot_sha256'])
+        passport=self.client.get('/api/passports/'+product['id'],headers=self.engineer).json()
+        linked=passport['inspections'][0]
+        self.assertEqual(linked['outcome_revision_count'],2)
+        self.assertEqual(linked['repair_outcome']['payload']['change_reason'],'Fault returned during extended check')
+        report=self.client.get(url+'/report.pdf',headers=self.engineer)
+        self.assertEqual(report.status_code,200)
+        report_text=' '.join(page.extract_text() for page in PdfReader(BytesIO(report.content)).pages)
+        self.assertIn('Latest repair outcome',report_text)
+        self.assertIn('Repeated opening and closing without catching',report_text)
+        self.assertIn('Fault returned during extended check',report_text)
+        (TEST_PATH/'outcome-report.pdf').write_bytes(report.content)
         outsider=self.client.post('/api/register-company',json={'company_name':'Outcome outsider','admin_name':'Other','email':'outcome-outsider@example.com','password':'strong-password'}).json()
         self.assertIn(self.client.get(url+'/outcome-history',headers={'Authorization':'Bearer '+outsider['token']}).status_code,[403,404])
         with self.assertRaises(IntegrityError):
