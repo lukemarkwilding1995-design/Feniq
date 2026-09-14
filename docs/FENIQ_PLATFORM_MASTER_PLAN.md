@@ -128,7 +128,7 @@ Learning records must ultimately preserve an immutable snapshot of original faul
 | 28  | Internet Technical Search                         | Planned                                                                                       | Official-source priority, constrained provider adapter, source validation and cited UI                                    |
 | 29  | Source classification                             | Partial: field guidance distinct from pending-review manufacturer files                       | Full approved four-class taxonomy and verification controls                                                               |
 | 30 | Product Passports | Demo workflow: persistent Site/Product IDs, company catalogue, retained lifecycle notes and inspection links | Metadata corrections/archival, verified manufacturer identity, richer lifecycle events, external sharing and production governance |
-| 31  | Technical Cases                                   | Planned, linked to passport and job                                                           | Case lifecycle, escalation, collaboration and resolution workflow; reuse module 46 for communications                     |
+| 31 | Technical Cases | Demo workflow: owned investigations linked to passports/jobs, retained notes, versioned updates, resolution and reopening | External collaborators, attachments, escalation delivery, richer permissions and production hardening |
 | 32  | Engineer Learning Engine                          | Partial: outcome metrics and patterns UI                                                      | Governed dataset versioning, evaluation and immutable outcome events                                                  |
 | 33  | Diagnosis → repair → outcome records              | Partial: LearningRecord linked to Job                                                         | First-save original snapshot implemented; next immutable repair/outcome events                                                      |
 | 34  | Governed/anonymised improvement                   | Partial: explicit opt-in flag, no automatic model updates                                     | Actual anonymisation pipeline, consent enforcement and reviewed promotion process                                         |
@@ -155,3 +155,7 @@ Migration 0003 binds requests to technical findings. Engineer review, stale-scop
 ## Product Passport update
 
 Migration 0004 adds explicit sites under customers, persistent product identities, append-only lifecycle events and inspection links. Company-shared passports preserve assigned-engineer restrictions on linked reports. Existing text-only inspection identity is not automatically inferred or migrated. Next: Technical Cases linked to these identities, alongside staged passport corrections/archival and production hardening.
+
+## Technical Case update
+
+Migration 0005 adds owned investigations with retained event history and optimistic version checks. Cases link to existing passports/inspections without copying restricted reports to shared timelines. Resolution does not authorise commercial work. Twenty-one tests pass. Next bounded work: controlled manufacturer-source review and verified evidence provenance, while keeping external communications and unimplemented production features clearly scoped.

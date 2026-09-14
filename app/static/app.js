@@ -863,7 +863,13 @@ document.addEventListener("click", async (e) => {
 });
 document.addEventListener("submit", async (e) => {
   const form = e.target;
-  if (form.id === "authForm" || form.id.startsWith("passport") || form.id === "siteForm") return;
+  if (
+    form.id === "authForm" ||
+    form.id.startsWith("case") ||
+    form.id.startsWith("passport") ||
+    form.id === "siteForm"
+  )
+    return;
   e.preventDefault();
   const b = form.querySelector('button:not([type="button"])');
   if (b?.disabled) return;

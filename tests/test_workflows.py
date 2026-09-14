@@ -50,6 +50,43 @@ class WorkflowTests(unittest.TestCase):
         site=self.client.post('/api/sites',headers=self.admin,json={'customer_id':customer['id'],'name':'Site A','address':'Fictional site'}).json()
         return self.client.post('/api/passports',headers=self.admin,json={'site_id':site['id'],'label':'Kitchen window','product':'Window'}).json()
 
+    def test_technical_case_resolution_and_version_guards(self):
+        job=self.job().json()
+        created=self.client.post('/api/cases',headers=self.engineer,json={'title':'Recurring catch','description':'Investigate repeat fault','job_id':job['id']})
+        self.assertEqual(created.status_code,200)
+        case=created.json();url='/api/cases/'+case['id']
+        self.assertEqual(self.client.patch(url,headers=self.engineer,json={'version':1,'status':'Closed','note':'Skip investigation'}).status_code,409)
+        self.assertEqual(self.client.patch(url,headers=self.engineer,json={'version':1,'status':'Investigating','note':'Tests started'}).status_code,200)
+        self.assertEqual(self.client.post(url+'/notes',headers=self.engineer,json={'version':1,'note':'Stale note'}).status_code,409)
+        self.assertEqual(self.client.patch(url,headers=self.engineer,json={'version':2,'status':'Resolved','note':'No explanation'}).status_code,422)
+        self.assertEqual(self.client.post(url+'/notes',headers=self.engineer,json={'version':2,'note':'Alignment checked'}).status_code,200)
+        self.assertEqual(self.client.patch(url,headers=self.engineer,json={'version':3,'status':'Resolved','note':'Checks complete','resolution':'Alignment correction verified'}).status_code,200)
+        self.assertEqual(self.client.patch(url,headers=self.engineer,json={'version':4,'status':'Closed','note':'Closed after review'}).status_code,200)
+        self.assertEqual(self.client.post(url+'/notes',headers=self.engineer,json={'version':5,'note':'Cannot edit closed history'}).status_code,409)
+        self.assertEqual(self.client.patch(url,headers=self.engineer,json={'version':5,'status':'Investigating','note':'Reopen'}).status_code,409)
+        self.assertEqual(self.client.patch(url,headers=self.admin,json={'version':5,'status':'Investigating','note':'Further investigation authorised'}).status_code,200)
+        detail=self.client.get(url,headers=self.engineer).json()
+        self.assertEqual(len(detail['events']),6)
+        self.assertTrue(any('Alignment correction verified' in e['note'] for e in detail['events']))
+        with self.assertRaises(IntegrityError):
+            with engine.begin() as connection:connection.execute(text('DELETE FROM case_events'))
+
+    def test_technical_case_ownership_and_link_boundaries(self):
+        job=self.job().json();product=self.passport()
+        data={'title':'Case','description':'Investigation','job_id':job['id'],'passport_id':product['id']}
+        self.assertEqual(self.client.post('/api/cases',headers=self.engineer,json=data).status_code,422)
+        self.client.post('/api/passports/'+product['id']+'/inspections',headers=self.engineer,json={'job_id':job['id']})
+        case=self.client.post('/api/cases',headers=self.engineer,json=data).json();url='/api/cases/'+case['id']
+        colleague=self.client.post('/api/join-company',json={'invite_code':self.invite,'name':'Colleague','email':'case-colleague@example.com','password':'strong-password'}).json()
+        headers={'Authorization':'Bearer '+colleague['token']}
+        self.assertEqual(self.client.get('/api/cases',headers=headers).json(),[])
+        self.assertEqual(self.client.get(url,headers=headers).status_code,403)
+        self.assertEqual(self.client.patch(url,headers=self.admin,json={'version':1,'status':'Open','owner_id':colleague['user']['id'],'note':'Invalid assignment'}).status_code,422)
+        other=self.client.post('/api/register-company',json={'company_name':'Other case company','admin_name':'Other','email':'case-other@example.com','password':'strong-password'}).json()
+        external={'Authorization':'Bearer '+other['token']}
+        self.assertEqual(self.client.get(url,headers=external).status_code,404)
+        self.assertEqual(self.client.post('/api/cases',headers=external,json=data).status_code,404)
+
     def test_passport_lifecycle_and_retained_links(self):
         product=self.passport();url='/api/passports/'+product['id']
         job=self.job(reference='PASSPORT-TEST').json()

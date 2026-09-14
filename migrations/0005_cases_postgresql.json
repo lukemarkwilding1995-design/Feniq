@@ -1,0 +1,11 @@
+[
+  "\nCREATE TABLE technical_cases (\n\tid VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\towner_id INTEGER NOT NULL, \n\tpassport_id VARCHAR(64), \n\tjob_id VARCHAR(64), \n\ttitle VARCHAR(240) NOT NULL, \n\tdescription TEXT NOT NULL, \n\tpriority VARCHAR(20) NOT NULL, \n\tstatus VARCHAR(40) NOT NULL, \n\tresolution TEXT NOT NULL, \n\tversion INTEGER NOT NULL, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id), \n\tFOREIGN KEY(owner_id) REFERENCES users (id), \n\tFOREIGN KEY(passport_id) REFERENCES product_passports (id), \n\tFOREIGN KEY(job_id) REFERENCES jobs (id)\n)\n\n",
+  "CREATE INDEX ix_technical_cases_company_id ON technical_cases (company_id)",
+  "CREATE INDEX ix_technical_cases_job_id ON technical_cases (job_id)",
+  "CREATE INDEX ix_technical_cases_owner_id ON technical_cases (owner_id)",
+  "CREATE INDEX ix_technical_cases_passport_id ON technical_cases (passport_id)",
+  "CREATE INDEX ix_technical_cases_status ON technical_cases (status)",
+  "\nCREATE TABLE case_events (\n\tid VARCHAR(64) NOT NULL, \n\tcase_id VARCHAR(64) NOT NULL, \n\tactor_id INTEGER NOT NULL, \n\tkind VARCHAR(40) NOT NULL, \n\tnote TEXT NOT NULL, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(case_id) REFERENCES technical_cases (id), \n\tFOREIGN KEY(actor_id) REFERENCES users (id)\n)\n\n",
+  "CREATE INDEX ix_case_events_case_id ON case_events (case_id)",
+  "CREATE TRIGGER case_events_immutable BEFORE UPDATE OR DELETE ON case_events FOR EACH ROW EXECUTE FUNCTION feniq_snapshot_immutable()"
+]
