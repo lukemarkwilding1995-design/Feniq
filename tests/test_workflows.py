@@ -69,6 +69,19 @@ class WorkflowTests(unittest.TestCase):
             result=self.client.post(source+'/reviews',headers=self.admin,json=review).json()
             page=self.client.get(source+'/reviewed-pages/1',headers=self.engineer).json()
             self.assertIn(quote,page['text'])
+            search='/api/jobs/'+job['id']+'/reviewed-evidence'
+            found=self.client.get(search,headers=self.engineer,params={'q':'sample hinge'}).json()
+            self.assertEqual(len(found['results']),1)
+            self.assertEqual(found['results'][0]['page'],1)
+            self.assertEqual(found['results'][0]['document_sha256'],digest)
+            self.assertIn(quote,found['results'][0]['excerpt'])
+            self.assertFalse(found['limited'])
+            for query in [{'q':'unreviewed second'},{'q':'invented value'},{'q':'hinge','applicability':'different system'}]:
+                self.assertEqual(self.client.get(search,headers=self.engineer,params=query).json()['results'],[])
+            other=self.client.post('/api/register-company',json={'company_name':'Evidence outsider','admin_name':'Other','email':'evidence-other@example.com','password':'strong-password'}).json()
+            self.assertIn(self.client.get(search,headers={'Authorization':'Bearer '+other['token']},params={'q':'hinge'}).status_code,[403,404])
+            self.assertEqual(self.client.get(search,headers=self.engineer,params={'q':'!!'}).status_code,422)
+
             self.assertEqual(self.client.get(source+'/reviewed-pages/2',headers=self.engineer).status_code,422)
             data={'document_id':'citation-fixture','review_id':result['id'],'page':1,'excerpt':'Invented source specification','relevance':'Fictional hinge investigation'}
             self.assertEqual(self.client.post(url,headers=self.engineer,json=data).status_code,422)
@@ -84,6 +97,7 @@ class WorkflowTests(unittest.TestCase):
             review.update(previous_id=result['id'],status='Withdrawn')
             self.assertEqual(self.client.post(source+'/reviews',headers=self.admin,json=review).status_code,200)
             self.assertFalse(self.client.get(url,headers=self.engineer).json()[0]['current'])
+            self.assertEqual(self.client.get(search,headers=self.engineer,params={'q':'hinge'}).json()['results'],[])
             self.assertEqual(self.client.post(url,headers=self.engineer,json=data).status_code,409)
             pdf=self.client.get('/api/jobs/'+job['id']+'/report.pdf',headers=self.engineer)
             self.assertEqual(pdf.status_code,200)

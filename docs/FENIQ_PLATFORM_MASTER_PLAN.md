@@ -167,3 +167,7 @@ Migration 0006 adds retained company review decisions tied to exact private PDF 
 ## Reviewed inspection citation update
 
 Migration 0007 retains exact reviewed-page excerpts with source/revision/hash provenance, historical status after withdrawal and fresh engineer review requirements. PDFs include a citation appendix. Twenty-three tests pass. This advances capabilities 8, 13, 20 and 25-27 without duplicating the library or claiming automated diagnostic retrieval. Next: controlled retrieval of relevant reviewed evidence.
+
+## Reviewed evidence search update
+
+Inspection-scoped literal PDF search now retrieves only currently reviewed pages, with source provenance and an explicit handoff to citation attachment. Results are bounded and incomplete coverage is disclosed. No migration. Twenty-three tests pass with expanded retrieval coverage. Human review of private documents remains outstanding; this is not automatic specification verification or semantic diagnosis.
