@@ -492,6 +492,7 @@ const pages = {
         `<div class="actions"><button data-action="edit-job">Edit inspection</button><button class="primary" data-action="pdf">Download PDF ↓</button></div>`,
       ) +
       snapshotPanel(snapshot) +
+      (await citationPanel(j)) +
       `<article class="panel"><div class="panel-head"><h2>FenIQ <small> / SERVICE REPORT</small></h2>${badge(j.approved_by_engineer ? "Engineer approved" : "Review required")}</div><div class="report-meta">${[
         ["Customer / site", j.customer],
         ["Product", j.product],
@@ -865,6 +866,7 @@ document.addEventListener("submit", async (e) => {
   const form = e.target;
   if (
     form.id === "authForm" ||
+    form.id.startsWith("citation") ||
     form.id === "sourceReviewForm" ||
     form.id.startsWith("case") ||
     form.id.startsWith("passport") ||

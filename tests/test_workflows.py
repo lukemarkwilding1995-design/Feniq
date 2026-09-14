@@ -50,6 +50,50 @@ class WorkflowTests(unittest.TestCase):
         site=self.client.post('/api/sites',headers=self.admin,json={'customer_id':customer['id'],'name':'Site A','address':'Fictional site'}).json()
         return self.client.post('/api/passports',headers=self.admin,json={'site_id':site['id'],'label':'Kitchen window','product':'Window'}).json()
 
+    def test_reviewed_citation_exactness_history_and_pdf(self):
+        import hashlib
+        from reportlab.pdfgen.canvas import Canvas
+        from pypdf import PdfReader
+        library=TEST_PATH/'citation-library';library.mkdir(exist_ok=True)
+        path=library/'fixture.pdf';canvas=Canvas(str(path))
+        quote='Fictional source: inspect the sample hinge before adjustment.'
+        canvas.drawString(40,700,quote);canvas.showPage();canvas.drawString(40,700,'Unreviewed second page');canvas.showPage();canvas.save()
+        digest=hashlib.sha256(path.read_bytes()).hexdigest()
+        (library/'manifest.json').write_text(json.dumps({'documents':[{'id':'citation-fixture','title':'Fictional citation guide','manufacturer':'Test only','revision':'1','category':'Test','filename':'fixture.pdf','sha256':digest,'company_ids':[1],'page_count':2,'pages':[]}]}),encoding='utf-8')
+        os.environ['FENIQ_DOCUMENT_ROOT']=str(library)
+        try:
+            job=self.job(approved_by_engineer=True).json();url='/api/jobs/'+job['id']+'/citations'
+            source='/api/documents/citation-fixture'
+            self.assertEqual(self.client.get(source+'/reviewed-pages/1',headers=self.engineer).status_code,409)
+            review={'document_sha256':digest,'status':'Approved for reference','title':'Fictional citation guide','manufacturer':'Test only','revision':'1','applicability':'Fictional testing only','page_start':1,'page_end':1,'note':'Synthetic review','attested':True}
+            result=self.client.post(source+'/reviews',headers=self.admin,json=review).json()
+            page=self.client.get(source+'/reviewed-pages/1',headers=self.engineer).json()
+            self.assertIn(quote,page['text'])
+            self.assertEqual(self.client.get(source+'/reviewed-pages/2',headers=self.engineer).status_code,422)
+            data={'document_id':'citation-fixture','review_id':result['id'],'page':1,'excerpt':'Invented source specification','relevance':'Fictional hinge investigation'}
+            self.assertEqual(self.client.post(url,headers=self.engineer,json=data).status_code,422)
+            data['excerpt']=quote
+            approval=self.client.post('/api/approvals',headers=self.engineer,json={'job_id':job['id'],'approval_type':'Test','description':'Pending scope'}).json()
+            self.assertEqual(self.client.post(url,headers=self.engineer,json=data).status_code,200)
+            self.assertTrue(self.client.post(url,headers=self.engineer,json=data).json()['already_attached'])
+            self.assertFalse(self.client.get('/api/jobs/'+job['id'],headers=self.engineer).json()['approved_by_engineer'])
+            self.client.patch('/api/jobs/'+job['id']+'/approve',headers=self.engineer)
+            self.assertEqual(self.client.post('/api/approvals/'+approval['id']+'/decision',headers=self.admin,json={'status':'Approved'}).status_code,409)
+            self.assertEqual(len(self.client.get(url,headers=self.engineer).json()),1)
+            self.assertTrue(self.client.get(url,headers=self.engineer).json()[0]['current'])
+            review.update(previous_id=result['id'],status='Withdrawn')
+            self.assertEqual(self.client.post(source+'/reviews',headers=self.admin,json=review).status_code,200)
+            self.assertFalse(self.client.get(url,headers=self.engineer).json()[0]['current'])
+            self.assertEqual(self.client.post(url,headers=self.engineer,json=data).status_code,409)
+            pdf=self.client.get('/api/jobs/'+job['id']+'/report.pdf',headers=self.engineer)
+            self.assertEqual(pdf.status_code,200)
+            text_content=' '.join(p.extract_text() for p in PdfReader(BytesIO(pdf.content)).pages)
+            self.assertIn(quote,text_content);self.assertIn('Historical citation',text_content)
+            (TEST_PATH/'citation-report.pdf').write_bytes(pdf.content)
+            with self.assertRaises(IntegrityError):
+                with engine.begin() as connection:connection.execute(text('DELETE FROM inspection_citations'))
+        finally:os.environ.pop('FENIQ_DOCUMENT_ROOT',None)
+
     def test_controlled_source_review_history_and_changed_bytes(self):
         import hashlib
         from reportlab.pdfgen.canvas import Canvas

@@ -3,14 +3,14 @@ from pathlib import Path
 from html import escape
 import json
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether, PageBreak
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from PIL import Image as PILImage
 
 
-def build_report(job, engineer_name, photos, upload_dir: Path):
+def build_report(job, engineer_name, photos, upload_dir: Path, citations=None):
     buf=BytesIO()
     ink=colors.HexColor('#163e31')
     styles=getSampleStyleSheet()
@@ -44,6 +44,11 @@ def build_report(job, engineer_name, photos, upload_dir: Path):
     story.extend([Paragraph('Customer sign-off',heading),text(job.signature or 'Not signed')])
     if not job.approved_by_engineer:
         story.extend([Spacer(1,3*mm),text('Diagnosis has not yet been marked as engineer reviewed.',small)])
+    if citations:
+        story.extend([PageBreak(), Paragraph('Source citations',heading)])
+        for citation in citations:
+            story.extend([text(f"{citation['title']} | {citation['manufacturer']} | Revision {citation['revision']} | PDF page {citation['page']}"),text(citation['status'],small),text(citation['excerpt']),text('Relevance: '+citation['relevance']),text('Reviewed applicability: '+citation['applicability'],small),text('Source SHA-256: '+citation['document_sha256'],small),Spacer(1,3*mm)])
+        story.append(text('Reference approval does not verify every specification or authorise remedial work. Historical citations are retained after a source review changes.',small))
     def footer(canvas,doc):
         canvas.saveState();canvas.setFont('Helvetica',8);canvas.setFillColor(colors.HexColor('#6e7c72'))
         canvas.drawString(18*mm,11*mm,'FenIQ | '+job.id[:8]);canvas.drawRightString(192*mm,11*mm,f'Page {doc.page}');canvas.restoreState()

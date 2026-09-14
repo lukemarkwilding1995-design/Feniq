@@ -48,6 +48,7 @@ class Job(Base):
     engineer_notes: Mapped[str] = mapped_column(Text, default="")
     signature: Mapped[str] = mapped_column(String(255), default="")
     approved_by_engineer: Mapped[bool] = mapped_column(Boolean, default=False)
+    citation_version: Mapped[int] = mapped_column(Integer, default=0)
     engineer = relationship("User")
 
 class Photo(Base):

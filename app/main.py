@@ -443,7 +443,8 @@ def delete_job(job_id: str, user: User = Depends(user_dep), db: Session = Depend
     from .models import DiagnosticSnapshot
     from .passports import PassportInspection
     from .cases import TechnicalCase
-    for model in (DiagnosticSnapshot,LearningRecord,WorkOrder,ApprovalRequest,PassportInspection,TechnicalCase):
+    from .citations import Citation
+    for model in (DiagnosticSnapshot,LearningRecord,WorkOrder,ApprovalRequest,PassportInspection,TechnicalCase,Citation):
         if db.scalar(select(model.id).where(model.job_id==job.id)):
             raise HTTPException(409,"This inspection has retained history or linked work. Deletion is blocked; archival is not yet available")
     photos=db.scalars(select(Photo).where(Photo.job_id==job.id)).all()
@@ -502,7 +503,8 @@ def analyse_photo(photo_id:str, user:User=Depends(user_dep), db:Session=Depends(
 def pdf(job_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):
     job=db.get(Job,job_id);check_job(job,user)
     photos=db.scalars(select(Photo).where(Photo.job_id==job.id)).all()
-    buf=build_report(job,job.engineer.name,photos,UPLOAD_DIR)
+    from .citations import citation_records
+    buf=build_report(job,job.engineer.name,photos,UPLOAD_DIR,citation_records(db,job))
     return StreamingResponse(buf,media_type="application/pdf",headers={"Content-Disposition":f'inline; filename="FenIQ-{job.id[:8]}.pdf"'})
 
 @app.get("/api/analytics")
@@ -661,3 +663,6 @@ register_cases(app,user_dep,check_job)
 
 from .source_reviews import register as register_source_reviews
 register_source_reviews(app,user_dep)
+
+from .citations import register as register_citations
+register_citations(app,user_dep,check_job)

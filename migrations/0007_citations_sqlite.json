@@ -1,0 +1,8 @@
+[
+  "ALTER TABLE jobs ADD COLUMN citation_version INTEGER NOT NULL DEFAULT 0",
+  "\nCREATE TABLE inspection_citations (\n\tid VARCHAR(64) NOT NULL, \n\tjob_id VARCHAR(64) NOT NULL, \n\tcompany_id INTEGER NOT NULL, \n\treview_id VARCHAR(64) NOT NULL, \n\tdocument_id VARCHAR(100) NOT NULL, \n\tdocument_sha256 VARCHAR(64) NOT NULL, \n\ttitle VARCHAR(300) NOT NULL, \n\tmanufacturer VARCHAR(180) NOT NULL, \n\trevision VARCHAR(180) NOT NULL, \n\tapplicability TEXT NOT NULL, \n\tpage INTEGER NOT NULL, \n\texcerpt TEXT NOT NULL, \n\texcerpt_sha256 VARCHAR(64) NOT NULL, \n\trelevance TEXT NOT NULL, \n\tadded_by_id INTEGER NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\tPRIMARY KEY (id), \n\tCONSTRAINT uq_inspection_citation UNIQUE (job_id, review_id, page, excerpt_sha256), \n\tFOREIGN KEY(job_id) REFERENCES jobs (id), \n\tFOREIGN KEY(company_id) REFERENCES companies (id), \n\tFOREIGN KEY(review_id) REFERENCES source_reviews (id), \n\tFOREIGN KEY(added_by_id) REFERENCES users (id)\n)\n\n",
+  "CREATE INDEX ix_inspection_citations_company_id ON inspection_citations (company_id)",
+  "CREATE INDEX ix_inspection_citations_job_id ON inspection_citations (job_id)",
+  "CREATE TRIGGER citations_no_update BEFORE UPDATE ON inspection_citations BEGIN SELECT RAISE(ABORT, 'Citation history is immutable'); END",
+  "CREATE TRIGGER citations_no_delete BEFORE DELETE ON inspection_citations BEGIN SELECT RAISE(ABORT, 'Citation history is immutable'); END"
+]

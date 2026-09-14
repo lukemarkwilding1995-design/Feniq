@@ -163,3 +163,7 @@ Migration 0005 adds owned investigations with retained event history and optimis
 ## Controlled source review update
 
 Migration 0006 adds retained company review decisions tied to exact private PDF hashes, reviewed pages, revision and declared applicability. Imports remain pending until a human administrator records a review. Changed bytes invalidate reference approval. This is reference governance, not automatic verification of numerical specifications. Twenty-two tests pass. Next: provenance-preserving reviewed page citations attached to inspections, then controlled diagnostic retrieval.
+
+## Reviewed inspection citation update
+
+Migration 0007 retains exact reviewed-page excerpts with source/revision/hash provenance, historical status after withdrawal and fresh engineer review requirements. PDFs include a citation appendix. Twenty-three tests pass. This advances capabilities 8, 13, 20 and 25-27 without duplicating the library or claiming automated diagnostic retrieval. Next: controlled retrieval of relevant reviewed evidence.

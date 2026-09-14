@@ -6,7 +6,7 @@ from sqlalchemy import select
 from .models import ApprovalRequest, Job
 
 SCOPE_FIELDS = ("product", "system_name", "fault", "module", "diagnosis", "confidence",
-                "recommendation", "parts_required")
+                "recommendation", "parts_required", "citation_version")
 TRANSITIONS = {
     "New": {"Scheduled", "In Progress", "Cancelled"},
     "Scheduled": {"New", "In Progress", "Cancelled"},
