@@ -171,3 +171,7 @@ Migration 0007 retains exact reviewed-page excerpts with source/revision/hash pr
 ## Reviewed evidence search update
 
 Inspection-scoped literal PDF search now retrieves only currently reviewed pages, with source provenance and an explicit handoff to citation attachment. Results are bounded and incomplete coverage is disclosed. No migration. Twenty-three tests pass with expanded retrieval coverage. Human review of private documents remains outstanding; this is not automatic specification verification or semantic diagnosis.
+
+## Search continuation
+
+Reviewed-evidence retrieval now supports further batches with query/source snapshot validation and visible coverage counts. Twenty-four tests pass. Next domain remains governed repair outcomes; production retrieval performance remains outstanding.

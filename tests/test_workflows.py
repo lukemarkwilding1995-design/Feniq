@@ -50,6 +50,24 @@ class WorkflowTests(unittest.TestCase):
         site=self.client.post('/api/sites',headers=self.admin,json={'customer_id':customer['id'],'name':'Site A','address':'Fictional site'}).json()
         return self.client.post('/api/passports',headers=self.admin,json={'site_id':site['id'],'label':'Kitchen window','product':'Window'}).json()
 
+    def test_reviewed_search_continuation_and_stale_scope(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        job=self.job().json();url='/api/jobs/'+job['id']+'/reviewed-evidence'
+        review=SimpleNamespace(id='review-a',document_sha256='abc',page_start=1,page_end=105,applicability='Test',title='Synthetic',manufacturer='Test',revision='1')
+        def page(db,company,identifier,number):return review,('target hinge' if number==105 else 'unrelated text')
+        with patch('app.citations.records',return_value=[{'id':'synthetic'}]),patch('app.citations.latest',return_value=review),patch('app.citations.summary',return_value={'reference_approved':True}),patch('app.citations.reviewed_page',side_effect=page):
+            first=self.client.get(url,headers=self.engineer,params={'q':'hinge'}).json()
+            self.assertEqual(first['next_offset'],100);self.assertEqual(first['results'],[])
+            params={'q':'hinge','offset':100,'snapshot':first['snapshot']}
+            second=self.client.get(url,headers=self.engineer,params=params).json()
+            self.assertEqual(second['results'][0]['page'],105);self.assertIsNone(second['next_offset'])
+            self.assertEqual(second['scanned_pages'],5)
+            self.assertEqual(self.client.get(url,headers=self.engineer,params={**params,'q':'changed'}).status_code,409)
+            review.id='review-b'
+            self.assertEqual(self.client.get(url,headers=self.engineer,params=params).status_code,409)
+            self.assertEqual(self.client.get(url,headers=self.engineer,params={'q':'hinge','offset':100}).status_code,409)
+
     def test_reviewed_citation_exactness_history_and_pdf(self):
         import hashlib
         from reportlab.pdfgen.canvas import Canvas

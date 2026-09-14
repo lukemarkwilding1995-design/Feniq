@@ -79,8 +79,14 @@ document.addEventListener("click", async (e) => {
   if (b?.dataset.evidenceSearch) {
     openModal(
       "Find reviewed evidence",
-      `<form id="citationSearch">${field("Search words (all must occur on the page)", "q", "", "text", 'required minlength="2" maxlength="200"')}${field("Reviewed applicability contains (optional)", "applicability", activeJob.system_name || "", "text", 'maxlength="200"')}<p class="muted">Inspection: ${esc(activeJob.fault)}. Search covers up to 100 reviewed pages and returns up to 20 matches. Confirm applicability before using any result.</p><p class="error form-error" role="alert"></p><button class="primary">Search reviewed pages</button></form><div id="evidenceResults" aria-live="polite"></div>`,
+      `<form id="citationSearch"><input type="hidden" name="offset" value="0"><input type="hidden" name="snapshot" value="">${field("Search words (all must occur on the page)", "q", "", "text", 'required minlength="2" maxlength="200"')}${field("Reviewed applicability contains (optional)", "applicability", activeJob.system_name || "", "text", 'maxlength="200"')}<p class="muted">Inspection: ${esc(activeJob.fault)}. Each search batch checks up to 100 reviewed pages and returns up to 20 matches. Continue through further batches when available. Confirm applicability before using any result.</p><p class="error form-error" role="alert"></p><button class="primary">Search reviewed pages</button></form><div id="evidenceResults" aria-live="polite"></div>`,
     );
+  }
+  if (b?.dataset.evidenceNext) {
+    const f = document.getElementById("citationSearch");
+    f.elements.offset.value = b.dataset.evidenceNext;
+    f.elements.snapshot.value = b.dataset.evidenceSnapshot;
+    f.requestSubmit();
   }
   if (b?.dataset.evidenceDocument) {
     await busy(b, async () => {
@@ -102,9 +108,17 @@ document.addEventListener("submit", async (e) => {
         `/api/jobs/${activeJob.id}/reviewed-evidence?${query}`,
       );
       $("evidenceResults").innerHTML =
-        `<p>${result.scanned_pages} reviewed pages checked. ${result.pages_without_text} pages without extractable text.</p>${result.limited ? '<p class="notice">Search limit reached; these results are incomplete. Narrow the applicability filter.</p>' : ""}<p class="muted">${esc(result.method)}</p>${result.results.length ? result.results.map((r) => `<div class="visit"><h4>${esc(r.title)}</h4><small>${esc(r.manufacturer)} | Revision ${esc(r.revision)} | PDF page ${r.page}</small><p>${esc(r.excerpt)}</p><p>Reviewed applicability: ${esc(r.applicability)}</p><button data-evidence-document="${esc(r.document_id)}" data-evidence-page="${r.page}">Review this page</button></div>`).join("") : "<p>No matching reviewed pages. Try fewer search words or check that a source has current reference approval. This does not mean the fault has no supporting evidence.</p>"}`;
+        `<p>Batch: ${result.scanned_pages} reviewed pages checked (${result.offset + result.scanned_pages} of ${result.total_pages}). ${result.pages_without_text} pages without extractable text.</p>${result.limited ? `<p class="notice">More reviewed pages remain.</p><button type="button" data-evidence-next="${result.next_offset}" data-evidence-snapshot="${esc(result.snapshot)}">Search next batch</button>` : ""}<p class="muted">${esc(result.method)}</p>${result.results.length ? result.results.map((r) => `<div class="visit"><h4>${esc(r.title)}</h4><small>${esc(r.manufacturer)} | Revision ${esc(r.revision)} | PDF page ${r.page}</small><p>${esc(r.excerpt)}</p><p>Reviewed applicability: ${esc(r.applicability)}</p><button data-evidence-document="${esc(r.document_id)}" data-evidence-page="${r.page}">Review this page</button></div>`).join("") : "<p>No matching reviewed pages. Try fewer search words or check that a source has current reference approval. This does not mean the fault has no supporting evidence.</p>"}`;
     } catch (error) {
       f.querySelector(".form-error").textContent = error.message;
     }
   });
+});
+
+document.addEventListener("input", (e) => {
+  const f = e.target.closest("#citationSearch");
+  if (!f) return;
+  f.elements.offset.value = "0";
+  f.elements.snapshot.value = "";
+  document.getElementById("evidenceResults").innerHTML = "";
 });

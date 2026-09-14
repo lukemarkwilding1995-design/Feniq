@@ -86,29 +86,41 @@ def citation_records(db,job):
 
 def register(app,user_dep,check_job):
     @app.get('/api/jobs/{job_id}/reviewed-evidence')
-    def search(job_id:str,q:str=Query(min_length=2,max_length=200),applicability:str=Query(default='',max_length=200),user=Depends(user_dep),db:Session=Depends(get_db)):
+    def search(job_id:str,q:str=Query(min_length=2,max_length=200),applicability:str=Query(default='',max_length=200),offset:int=Query(default=0,ge=0),snapshot:str=Query(default='',max_length=64),user=Depends(user_dep),db:Session=Depends(get_db)):
         job=db.get(Job,job_id);check_job(job,user)
         words=list(dict.fromkeys(re.findall(r'\w+',q.casefold())))
         if not words:raise HTTPException(422,'Enter search words')
-        results=[];scanned=0;unreadable=0;limited=False
+        eligible=[]
         for document in sorted(records(user.company_id),key=lambda d:d['id']):
             review=latest(db,user.company_id,document['id'])
             if not review or not summary(db,user.company_id,document)['reference_approved']:continue
             if applicability.strip().casefold() not in review.applicability.casefold():continue
+            eligible.append((document,review))
+        identity=repr((job.id,words,applicability.strip().casefold(),[(d['id'],r.id,r.document_sha256,r.page_start,r.page_end) for d,r in eligible]))
+        version=hashlib.sha256(identity.encode()).hexdigest()
+        if (offset and not snapshot) or (snapshot and snapshot!=version):
+            raise HTTPException(409,'The search or reviewed sources changed. Start a new search.')
+        total=sum(r.page_end-r.page_start+1 for _,r in eligible)
+        if offset>total:raise HTTPException(422,'Search position is outside the reviewed pages')
+        results=[];scanned=0;unreadable=0;position=0
+        for document,review in eligible:
             for number in range(review.page_start,review.page_end+1):
-                if scanned>=100 or len(results)>=20:
-                    limited=True;break
-                scanned+=1
+                if position<offset:
+                    position+=1;continue
+                if scanned>=100 or len(results)>=20:break
+                position+=1;scanned+=1
                 try:current,content=reviewed_page(db,user.company_id,document['id'],number)
-                except HTTPException:continue
+                except HTTPException:raise HTTPException(409,'A reviewed source changed during search. Start a new search.')
+                if current.id!=review.id:raise HTTPException(409,'A source review changed during search. Start a new search.')
                 if not content:
                     unreadable+=1;continue
                 lowered=content.casefold()
                 if not all(word in lowered for word in words):continue
                 start=max(0,min(lowered.find(word) for word in words)-80)
                 results.append({'document_id':document['id'],'review_id':current.id,'title':current.title,'manufacturer':current.manufacturer,'revision':current.revision,'page':number,'applicability':current.applicability,'document_sha256':current.document_sha256,'excerpt':content[start:start+600]})
-            if limited:break
-        return {'results':results,'scanned_pages':scanned,'pages_without_text':unreadable,'limited':limited,'method':'All search words on an actual reviewed PDF page; applicability is a text filter, not an engineering validation.'}
+            if scanned>=100 or len(results)>=20:break
+        next_offset=offset+scanned if offset+scanned<total else None
+        return {'results':results,'scanned_pages':scanned,'pages_without_text':unreadable,'limited':next_offset is not None,'next_offset':next_offset,'snapshot':version,'offset':offset,'total_pages':total,'method':'All search words on an actual reviewed PDF page; applicability is a text filter, not an engineering validation.'}
 
     @app.get('/api/documents/{identifier}/reviewed-pages/{page}')
     def page(identifier:str,page:int,user=Depends(user_dep),db:Session=Depends(get_db)):
