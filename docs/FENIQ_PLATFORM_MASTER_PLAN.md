@@ -183,3 +183,7 @@ Migration 0008 adds append-only repair feedback history and original diagnostic 
 ## Outcome reporting and passport integration
 
 Inspection screens and PDFs now show the latest retained repair result alongside the immutable original diagnosis, including final checks and integrity metadata. Linked Product Passports expose the latest authorised outcome and revision count without copying it into editable lifecycle notes. Twenty-five tests pass, including passport and PDF integration. Next: versioned structured verification checks and repeat-failure analysis.
+
+## Structured repair verification
+
+A server-owned core verification definition now records four structured final checks with its revision and hash inside every new outcome revision. Resolved outcomes require all checks to pass plus narrative observed results. Historical unstructured revisions remain visible and clearly labelled. Twenty-five tests pass. This is FenIQ field workflow guidance rather than manufacturer specification. Next: governed Product Passport repeat-failure analysis.

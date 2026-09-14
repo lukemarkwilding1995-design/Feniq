@@ -54,6 +54,14 @@ def build_report(job, engineer_name, photos, upload_dir: Path, citations=None, o
                       Paragraph('Final checks and observed results',heading),text(payload.get('verification_checks')),
                       Paragraph('Reported result',heading),text('Resolved' if payload.get('resolved') else 'Not resolved'),
                       text('Repeat visit required: '+('Yes' if payload.get('repeat_visit_required') else 'No'))])
+        definition=payload.get('verification_definition')
+        if definition:
+            answers=payload.get('verification_answers',{})
+            story.extend([Paragraph('Structured verification',heading),
+                          text(f"{definition['title']} | Revision {definition['revision']}"),
+                          *[text(f"{check['label']}: {answers.get(check['key'],'Not recorded')}") for check in definition['checks']],
+                          text(definition['source_status'],small),
+                          text('Verification definition SHA-256: '+definition['sha256'],small)])
         if payload.get('change_reason'):
             story.extend([Paragraph('Reason for correction',heading),text(payload['change_reason'])])
         story.extend([text('This is the latest engineer-submitted outcome. Earlier revisions remain in the audit history.',small),

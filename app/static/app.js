@@ -534,7 +534,10 @@ function outcomeSummary(rows) {
     return '<section class="panel" style="margin-bottom:20px"><h3>Repair outcome</h3><p>No retained repair outcome yet.</p></section>';
   const row = rows.at(-1);
   const p = row.payload;
-  return `<section class="panel" style="margin-bottom:20px"><div class="panel-head"><h3>Latest repair outcome</h3>${badge(p.resolved ? "Reported resolved" : "Not resolved")}</div><p><b>Actual repair:</b> ${esc(p.actual_repair)}</p><p><b>Final checks:</b> ${esc(p.verification_checks || "Not recorded in legacy feedback")}</p><p><b>Confirmed diagnosis:</b> ${esc(p.confirmed_diagnosis)}</p><small>Retained revision ${row.version} of ${rows.length} · ${row.integrity_valid ? "Integrity checked" : "Integrity check failed"}. Earlier revisions remain available from Record repair outcome.</small></section>`;
+  const checks = p.verification_definition
+    ? `<p><b>${esc(p.verification_definition.title)} revision ${p.verification_definition.revision}</b></p><ul>${p.verification_definition.checks.map((check) => `<li>${esc(check.label)}: ${esc(p.verification_answers[check.key])}</li>`).join("")}</ul>`
+    : '<p class="muted">No structured verification definition was retained for this legacy revision.</p>';
+  return `<section class="panel" style="margin-bottom:20px"><div class="panel-head"><h3>Latest repair outcome</h3>${badge(p.resolved ? "Reported resolved" : "Not resolved")}</div><p><b>Actual repair:</b> ${esc(p.actual_repair)}</p><p><b>Final checks:</b> ${esc(p.verification_checks || "Not recorded in legacy feedback")}</p>${checks}<p><b>Confirmed diagnosis:</b> ${esc(p.confirmed_diagnosis)}</p><small>Retained revision ${row.version} of ${rows.length} · ${row.integrity_valid ? "Integrity checked" : "Integrity check failed"}. Earlier revisions remain available from Record repair outcome.</small></section>`;
 }
 function snapshotPanel(snapshot) {
   if (!snapshot)
@@ -682,12 +685,26 @@ async function orderForm(id = null) {
 }
 async function outcomeForm() {
   const j = activeJob;
-  const l = await api(`/api/jobs/${j.id}/learning`);
-  const history = await api(`/api/jobs/${j.id}/outcome-history`);
+  const [l, history, definition] = await Promise.all([
+    api(`/api/jobs/${j.id}/learning`),
+    api(`/api/jobs/${j.id}/outcome-history`),
+    api(`/api/jobs/${j.id}/verification-definition`),
+  ]);
   const latest = history.at(-1);
+  const previousAnswers = latest?.payload.verification_answers || {};
+  const structuredChecks = definition.checks
+    .map((check) =>
+      select(
+        check.label,
+        `verification_${check.key}`,
+        ["Pass", "Fail", "Not checked"],
+        previousAnswers[check.key] || "Not checked",
+      ),
+    )
+    .join("");
   openModal(
     "Record repair outcome",
-    `<form id="learningForm"><input type="hidden" name="expected_version" value="${latest?.version || 0}">${area("Final checks and observed results (required if resolved)", "verification_checks", latest?.payload.verification_checks || "", 'maxlength="10000"')}${area("Reason for correcting the previous outcome", "change_reason", "", latest ? 'required maxlength="2000"' : 'maxlength="2000"')}${field("Engineer-confirmed diagnosis", "confirmed_diagnosis", l?.confirmed_diagnosis || j.diagnosis, "text", "required")}${area("Actual repair carried out", "actual_repair", l?.actual_repair || j.work_done, "required")}<div class="form-grid">${select(
+    `<form id="learningForm"><input type="hidden" name="expected_version" value="${latest?.version || 0}"><input type="hidden" name="verification_definition_id" value="${esc(definition.id)}"><input type="hidden" name="verification_definition_sha256" value="${esc(definition.sha256)}"><h3>${esc(definition.title)} · Revision ${definition.revision}</h3><p class="muted">${esc(definition.source_status)}. Complete every check; every required check must pass before reporting the fault resolved.</p><div class="form-grid">${structuredChecks}</div>${area("Final checks and observed results (required if resolved)", "verification_checks", latest?.payload.verification_checks || "", 'maxlength="10000"')}${area("Reason for correcting the previous outcome", "change_reason", "", latest ? 'required maxlength="2000"' : 'maxlength="2000"')}${field("Engineer-confirmed diagnosis", "confirmed_diagnosis", l?.confirmed_diagnosis || j.diagnosis, "text", "required")}${area("Actual repair carried out", "actual_repair", l?.actual_repair || j.work_done, "required")}<div class="form-grid">${select(
       "Did the repair resolve the fault?",
       "resolved",
       [
@@ -721,7 +738,7 @@ async function outcomeForm() {
             .reverse()
             .map(
               (r) =>
-                `<div class="visit"><strong>Revision ${r.version} - ${esc(new Date(r.created_at).toLocaleString())}</strong><p>${esc(r.payload.actual_repair)}</p><p>Final checks: ${esc(r.payload.verification_checks || "Not recorded in legacy feedback")}</p><p>${r.payload.resolved ? "Reported resolved" : "Not resolved"} | ${r.integrity_valid ? "Integrity checked" : "Integrity check failed"}</p><small>${esc(r.payload.change_reason || r.payload.origin)}</small></div>`,
+                `<div class="visit"><strong>Revision ${r.version} - ${esc(new Date(r.created_at).toLocaleString())}</strong><p>${esc(r.payload.actual_repair)}</p><p>Final checks: ${esc(r.payload.verification_checks || "Not recorded in legacy feedback")}</p>${r.payload.verification_definition ? `<p>${esc(r.payload.verification_definition.title)} revision ${r.payload.verification_definition.revision}</p><ul>${r.payload.verification_definition.checks.map((check) => `<li>${esc(check.label)}: ${esc(r.payload.verification_answers[check.key])}</li>`).join("")}</ul>` : '<p class="muted">No structured verification definition was retained for this legacy revision.</p>'}<p>${r.payload.resolved ? "Reported resolved" : "Not resolved"} | ${r.integrity_valid ? "Integrity checked" : "Integrity check failed"}</p><small>${esc(r.payload.change_reason || r.payload.origin)}</small></div>`,
             )
             .join("")
         : "<p>No retained revisions yet. Existing feedback will be preserved on its next correction.</p>"
@@ -986,8 +1003,20 @@ document.addEventListener("submit", async (e) => {
         toast("Decision recorded");
       }
       if (form.id === "learningForm") {
+        const verificationAnswers = {};
+        for (const [key, value] of Object.entries(data)) {
+          if (!key.startsWith("verification_")) continue;
+          if (
+            key !== "verification_definition_id" &&
+            key !== "verification_definition_sha256"
+          ) {
+            verificationAnswers[key.slice("verification_".length)] = value;
+            delete data[key];
+          }
+        }
         await send(`/api/jobs/${activeJob.id}/learning`, {
           ...data,
+          verification_answers: verificationAnswers,
           resolved: data.resolved === "true",
           repeat_visit_required: data.repeat_visit_required === "true",
           engineer_rating: Number(data.engineer_rating),

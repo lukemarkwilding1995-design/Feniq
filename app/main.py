@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from .db import Base, engine, get_db
 from . import outcomes
+from . import verification
 from sqlalchemy.exc import IntegrityError
 from .models import Company, User, Job, Photo, LearningRecord, Customer, WorkOrder, ApprovalRequest, Notification, AuditEvent
 from .security import hash_password, verify_password, create_token, current_user
@@ -321,6 +322,14 @@ class LearningIn(BaseModel):
     verification_checks: str=Field(default="",max_length=10000)
     change_reason: str=Field(default="",max_length=2000)
     expected_version: int=Field(default=0,ge=0)
+    verification_definition_id: str=""
+    verification_definition_sha256: str=""
+    verification_answers: dict[str,Literal['Pass','Fail','Not checked']]=Field(default_factory=dict)
+
+@app.get('/api/jobs/{job_id}/verification-definition')
+def verification_definition(job_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):
+    job=db.get(Job,job_id);check_job(job,user)
+    return verification.current()
 
 @app.post("/api/jobs/{job_id}/learning")
 def save_learning(job_id: str, data: LearningIn, user: User = Depends(user_dep), db: Session = Depends(get_db)):
@@ -332,6 +341,10 @@ def save_learning(job_id: str, data: LearningIn, user: User = Depends(user_dep),
     if data.expected_version!=version:raise HTTPException(409,"Outcome changed. Reopen the form before saving.")
     if not data.confirmed_diagnosis.strip() or not data.actual_repair.strip():raise HTTPException(422,"Record the diagnosis and actual repair")
     if data.resolved and not data.verification_checks.strip():raise HTTPException(422,"Record final checks and observed results before marking resolved")
+    try:
+        verification_used=verification.validate_submission(data.verification_definition_id,data.verification_definition_sha256,data.verification_answers,data.resolved)
+    except ValueError as error:
+        raise HTTPException(409 if 'changed' in str(error) else 422,str(error))
     if version and not data.change_reason.strip():raise HTTPException(422,"Explain the correction to the previous outcome")
     existing=db.scalar(select(LearningRecord).where(LearningRecord.job_id==job.id))
     if existing and not prior:
@@ -359,6 +372,7 @@ def save_learning(job_id: str, data: LearningIn, user: User = Depends(user_dep),
     record.anonymised_for_learning=data.anonymised_for_learning
     snapshot=capture_snapshot(db,job,user.id)
     payload=data.model_dump(exclude={'expected_version'})
+    payload['verification_definition']=verification_used
     payload.update(origin='Engineer outcome submission',snapshot_id=snapshot.id,snapshot_sha256=snapshot.sha256,predicted_diagnosis=record.predicted_diagnosis,predicted_confidence=record.predicted_confidence,parts_recorded=job.parts_required,governance='Retained evidence; not anonymised or approved for model training')
     outcomes.append(db,job,user.id,version+1,payload)
     from .audit import log

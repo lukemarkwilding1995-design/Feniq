@@ -37,6 +37,11 @@ class WorkflowTests(unittest.TestCase):
     def job(self,**extra):
         return self.client.post('/api/jobs',headers=self.engineer,json={'customer':'Test site','fault':'Stiff handle','product':'Window',**extra})
 
+    def verification(self,job_id,result='Pass'):
+        definition=self.client.get('/api/jobs/'+job_id+'/verification-definition',headers=self.engineer).json()
+        return {'verification_definition_id':definition['id'],'verification_definition_sha256':definition['sha256'],
+                'verification_answers':{check['key']:result for check in definition['checks']}}
+
     def test_auth_and_roles(self):
         self.assertEqual(self.client.get('/api/jobs').status_code,401)
         self.assertEqual(self.client.get('/api/company/users',headers=self.engineer).status_code,403)
@@ -55,13 +60,20 @@ class WorkflowTests(unittest.TestCase):
         job=self.job().json();url='/api/jobs/'+job['id']
         product=self.passport()
         self.assertEqual(self.client.post('/api/passports/'+product['id']+'/inspections',headers=self.engineer,json={'job_id':job['id']}).status_code,200)
-        data={'confirmed_diagnosis':'Keep interference','actual_repair':'Adjusted keep','resolved':True}
+        data={'confirmed_diagnosis':'Keep interference','actual_repair':'Adjusted keep','resolved':True,**self.verification(job['id'])}
+        stale={**data,'verification_definition_sha256':'0'*64,'verification_checks':'Checked'}
+        self.assertEqual(self.client.post(url+'/learning',headers=self.engineer,json=stale).status_code,409)
+        failed={**data,'verification_answers':dict(data['verification_answers']),'verification_checks':'Checked'}
+        failed['verification_answers']['original_fault_rechecked']='Fail'
+        self.assertEqual(self.client.post(url+'/learning',headers=self.engineer,json=failed).status_code,422)
         self.assertEqual(self.client.post(url+'/learning',headers=self.engineer,json=data).status_code,422)
         data['verification_checks']='Repeated opening and closing without catching'
         self.assertEqual(self.client.post(url+'/learning',headers=self.engineer,json=data).status_code,200)
         first=self.client.get(url+'/outcome-history',headers=self.engineer).json()
         self.assertEqual(len(first),1);self.assertTrue(first[0]['integrity_valid'])
         self.assertFalse(first[0]['payload']['anonymised_for_learning'])
+        self.assertEqual(first[0]['payload']['verification_definition']['revision'],1)
+        self.assertTrue(all(value=='Pass' for value in first[0]['payload']['verification_answers'].values()))
         self.assertEqual(self.client.post(url+'/learning',headers=self.engineer,json=data).status_code,409)
         data.update(expected_version=1,resolved=False)
         self.assertEqual(self.client.post(url+'/learning',headers=self.engineer,json=data).status_code,422)
@@ -321,7 +333,7 @@ class WorkflowTests(unittest.TestCase):
         job['fault']='Updated observations'
         self.assertEqual(self.client.patch('/api/jobs/'+job['id'],headers=self.engineer,json=job).status_code,200)
         self.assertEqual(self.client.get(url,headers=self.engineer).json(),original)
-        saved=self.client.post('/api/jobs/'+job['id']+'/learning',headers=self.engineer,json={'confirmed_diagnosis':'Engineer revised conclusion','actual_repair':'Adjusted keep','resolved':True,'verification_checks':'Repeated operation completed without catching'})
+        saved=self.client.post('/api/jobs/'+job['id']+'/learning',headers=self.engineer,json={'confirmed_diagnosis':'Engineer revised conclusion','actual_repair':'Adjusted keep','resolved':True,'verification_checks':'Repeated operation completed without catching',**self.verification(job['id'])})
         self.assertEqual(saved.status_code,200)
         feedback=self.client.get('/api/jobs/'+job['id']+'/learning',headers=self.engineer).json()
         self.assertEqual(feedback['predicted_diagnosis'],original['payload']['diagnosis'])
@@ -374,7 +386,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/approvals/'+a['id']+'/decision',headers=self.engineer,json={'status':'Approved'}).status_code,403)
         self.assertEqual(self.client.post('/api/approvals/'+a['id']+'/decision',headers=self.admin,json={'status':'Approved','decision_note':'Proceed'}).status_code,200)
         self.assertEqual(self.client.post('/api/approvals/'+a['id']+'/decision',headers=self.admin,json={'status':'Rejected'}).status_code,409)
-        result={'confirmed_diagnosis':j['diagnosis'],'actual_repair':'Adjusted keep','resolved':True,'engineer_rating':5,'verification_checks':'Repeated operation completed without catching'}
+        result={'confirmed_diagnosis':j['diagnosis'],'actual_repair':'Adjusted keep','resolved':True,'engineer_rating':5,'verification_checks':'Repeated operation completed without catching',**self.verification(j['id'])}
         self.assertEqual(self.client.post('/api/jobs/'+j['id']+'/learning',headers=self.engineer,json=result).status_code,200)
         self.assertEqual(self.client.get('/api/learning/metrics',headers=self.engineer).json()['records'],1)
         self.assertTrue(self.client.get('/api/notifications',headers=self.engineer).json())
