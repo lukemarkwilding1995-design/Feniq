@@ -9,12 +9,20 @@ from .security import hash_password
 def create_demo(db, role):
     company=db.scalar(select(Company).where(Company.name=="FenIQ Demo · Northline Windows"))
     if company:
-        return db.scalar(select(User).where(User.company_id==company.id,User.role==role))
+        name={"admin":"Alex Morgan","engineer":"Jamie Taylor","reviewer":"Robin Clarke"}[role]
+        existing=db.scalar(select(User).where(User.company_id==company.id,User.name==name))
+        if existing:
+            return existing
+        if role!="reviewer":
+            raise RuntimeError("Fictional demo account is missing")
+        reviewer=User(company_id=company.id,name=name,email=f"reviewer-{uuid.uuid4().hex}@demo.invalid",role="admin",password_hash=hash_password(secrets.token_urlsafe(32)))
+        db.add(reviewer);db.commit();db.refresh(reviewer)
+        return reviewer
     company=Company(name="FenIQ Demo · Northline Windows",invite_code=secrets.token_urlsafe(12))
     db.add(company);db.flush()
     users={}
-    for r,name in [("admin","Alex Morgan"),("engineer","Jamie Taylor")]:
-        u=User(company_id=company.id,name=name,email=f"{r}-{uuid.uuid4().hex}@demo.invalid",role=r,password_hash=hash_password(secrets.token_urlsafe(32)))
+    for r,name in [("admin","Alex Morgan"),("engineer","Jamie Taylor"),("reviewer","Robin Clarke")]:
+        u=User(company_id=company.id,name=name,email=f"{r}-{uuid.uuid4().hex}@demo.invalid",role="admin" if r=="reviewer" else r,password_hash=hash_password(secrets.token_urlsafe(32)))
         db.add(u);db.flush();users[r]=u
     sites=[("Willow House","18 Willow Lane, Bristol","French Door","Sash alignment / installation geometry requires further correction","Adjusted / Resolved"),
            ("Harbour Apartments","42 Harbour Road, Bristol","Window","Locking point / keep alignment issue","Parts Required"),

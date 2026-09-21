@@ -146,6 +146,28 @@ def company_users(admin: User = Depends(require_admin), db: Session = Depends(ge
     return [user_json(x) for x in rows]
 
 
+class GrantAdminIn(BaseModel):
+    reason: str = Field(min_length=5, max_length=1000)
+
+
+@app.post("/api/company/users/{user_id}/grant-admin")
+def grant_company_admin(user_id: int, data: GrantAdminIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    target = db.get(User, user_id)
+    if not target or target.company_id != admin.company_id:
+        raise HTTPException(404, "Company user not found")
+    if not target.active or target.role != "engineer":
+        raise HTTPException(409, "Only an active company engineer can be granted admin access")
+    reason = data.reason.strip()
+    if len(reason) < 5:
+        raise HTTPException(422, "Explain the role grant")
+    target.role = "admin"
+    db.add(Notification(id=str(uuid.uuid4()), company_id=admin.company_id, user_id=target.id,
+                        title="Company admin access granted", body="Your company administrator granted you admin access."))
+    audit_log(db, admin.company_id, admin.id, "company.admin_granted", "user", str(target.id), {"reason": reason})
+    db.commit()
+    return user_json(target)
+
+
 
 
 @app.get("/api/guides")
@@ -478,6 +500,8 @@ def decide_learning_dataset(data: DatasetDecisionIn, user: User = Depends(requir
     preview = learning_dataset.prepare(db, revision, review)
     if preview is None or learning_dataset.digest(learning_dataset.encoded(preview)) != data.preview_sha256:
         raise HTTPException(409, "The reviewed field-limited preview is unavailable or changed")
+    if data.decision == "Approve local research" and review.reviewed_by_id == user.id:
+        raise HTTPException(409, "A different company admin must approve this prepared record")
     if db.scalar(select(learning_dataset.DatasetDecision).where(
         learning_dataset.DatasetDecision.outcome_revision_id == revision.id
     )):
@@ -498,6 +522,11 @@ def decide_learning_dataset(data: DatasetDecisionIn, user: User = Depends(requir
 @app.get("/api/learning/internal-dataset")
 def learning_internal_dataset(user: User = Depends(require_admin), db: Session = Depends(get_db)):
     return learning_dataset.internal_dataset(db, user.company_id)
+
+
+@app.get("/api/learning/aggregate")
+def learning_aggregate(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    return learning_dataset.aggregate(db, user.company_id)
 
 
 @app.get("/api/learning/dataset-history")
@@ -805,7 +834,7 @@ def technical_document_page(document_id:str,page_number:int,user:User=Depends(us
     return Response(page_image(user.company_id,document_id,page_number),media_type='image/png',headers={"Cache-Control":"private, no-store"})
 
 @app.post("/api/demo")
-def demo_session(role:Literal["admin","engineer"]="admin",db:Session=Depends(get_db)):
+def demo_session(role:Literal["admin","engineer","reviewer"]="admin",db:Session=Depends(get_db)):
     if os.getenv("FENIQ_DEMO","0")!="1": raise HTTPException(404,"Not found")
     from .demo import create_demo
     demo_user=create_demo(db,role)

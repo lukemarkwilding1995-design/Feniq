@@ -25,6 +25,7 @@ VERIFICATION_KEYS = (
 )
 VERIFICATION_VALUES = {"Pass", "Fail", "Not checked"}
 REMAKE_VALUES = {"Not applicable", "Yes", "No"}
+MIN_AGGREGATE_COUNT = 5
 
 
 class DatasetDecision(Base):
@@ -143,11 +144,13 @@ def candidates(db, company_id):
             "outcome_version": revision.version,
             "outcome_sha256": revision.sha256,
             "learning_review_id": review.id,
+            "first_reviewer_id": review.reviewed_by_id,
             "preview": payload,
             "preview_sha256": digest(preview_json),
             "decision": None if not decision else {
                 "id": decision.id, "decision": decision.decision,
                 "reason": decision.reason, "created_at": decision.created_at,
+                "independent": decision.decided_by_id != review.reviewed_by_id,
             },
         })
     return sorted(items, key=lambda item: item["outcome_revision_id"])
@@ -184,7 +187,8 @@ def internal_dataset(db, company_id):
         if not decision or decision.outcome_sha256 != revision.sha256:
             continue
         review = reviews.get(revision.id)
-        if not review or decision.learning_review_id != review.id:
+        if (not review or decision.learning_review_id != review.id
+                or decision.decided_by_id == review.reviewed_by_id):
             continue
         preview = prepare(db, revision, review)
         if preview is None or digest(encoded(preview)) != decision.preview_sha256:
@@ -193,6 +197,22 @@ def internal_dataset(db, company_id):
             continue
         records.append(preview)
     return {"count": len(records), "records": records}
+
+
+def aggregate(db, company_id):
+    """Suppress every statistic until the current independently approved cohort is large enough."""
+    records = internal_dataset(db, company_id)["records"]
+    result = {"eligible_count": len(records), "minimum_count": MIN_AGGREGATE_COUNT,
+              "status": "Ready" if len(records) >= MIN_AGGREGATE_COUNT else "Below threshold",
+              "summary": None}
+    if len(records) >= MIN_AGGREGATE_COUNT:
+        result["summary"] = {
+            "records": len(records),
+            "resolved": sum(row["resolved"] for row in records),
+            "repeat_visits": sum(row["repeat_visit_required"] for row in records),
+            "diagnosis_matches": sum(row["diagnosis_match"] == "Yes" for row in records),
+        }
+    return result
 
 
 def history(db, company_id, limit, offset):
@@ -207,10 +227,15 @@ def history(db, company_id, limit, offset):
         OutcomeRevision.company_id == company_id,
         OutcomeRevision.id.in_([decision.outcome_revision_id for decision in rows]),
     )).all()} if rows else {}
+    reviews = {row.id: row for row in db.scalars(select(LearningReview).where(
+        LearningReview.company_id == company_id,
+        LearningReview.id.in_([decision.learning_review_id for decision in rows]),
+    )).all()} if rows else {}
     items = []
     for decision in rows:
         latest = current.get(decision.job_id)
         source = sources.get(decision.outcome_revision_id)
+        review = reviews.get(decision.learning_review_id)
         if not latest:
             status = "Source unavailable"
         elif latest.id != decision.outcome_revision_id:
@@ -220,6 +245,8 @@ def history(db, company_id, limit, offset):
                 status = "Superseded"
         elif not integrity_valid(latest) or latest.sha256 != decision.outcome_sha256:
             status = "Source integrity check failed"
+        elif not review or (decision.decision == "Approve local research" and decision.decided_by_id == review.reviewed_by_id):
+            status = "Independent admin approval needed"
         else:
             status = "Current"
         items.append({

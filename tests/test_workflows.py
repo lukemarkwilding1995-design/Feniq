@@ -199,10 +199,23 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=self.engineer,json=decision).status_code,403)
         self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=outsider_auth,json=decision).status_code,404)
         self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=self.admin,json={**decision,'preview_sha256':'0'*64}).status_code,409)
-        self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=self.admin,json=decision).status_code,200)
         self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=self.admin,json=decision).status_code,409)
+
+        self.assertEqual(self.client.get('/api/learning/aggregate',headers=self.engineer).status_code,403)
+        self.assertEqual(self.client.get('/api/learning/aggregate',headers=outsider_auth).json()['eligible_count'],0)
+        second=self.client.post('/api/join-company',json={'invite_code':self.invite,'name':'Second Admin','email':'second@example.com','password':'strong-password'}).json()
+        second_auth={'Authorization':'Bearer '+second['token']}
+        grant='/api/company/users/'+str(second['user']['id'])+'/grant-admin'
+        self.assertEqual(self.client.post(grant,headers=self.engineer,json={'reason':'Independent review'}).status_code,403)
+        self.assertEqual(self.client.post(grant,headers=outsider_auth,json={'reason':'Independent review'}).status_code,404)
+        self.assertEqual(self.client.post(grant,headers=self.admin,json={'reason':'Independent review'}).status_code,200)
+        self.assertEqual(self.client.post(grant,headers=self.admin,json={'reason':'Independent review'}).status_code,409)
+        self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=second_auth,json=decision).status_code,200)
+        self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=second_auth,json=decision).status_code,409)
         dataset=self.client.get('/api/learning/internal-dataset',headers=self.admin).json()
         self.assertEqual(dataset,{'count':1,'records':[preview]})
+        aggregate=self.client.get('/api/learning/aggregate',headers=self.admin).json()
+        self.assertEqual(aggregate,{'eligible_count':1,'minimum_count':5,'status':'Below threshold','summary':None})
         self.assertNotIn(job['id'],json.dumps(dataset))
         decision_history=self.client.get('/api/learning/dataset-history',headers=self.admin).json()
         self.assertEqual(decision_history['items'][0]['status'],'Current')
@@ -222,6 +235,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/learning/internal-dataset',headers=self.admin).json()['count'],0)
         self.assertEqual(self.client.get('/api/learning/dataset-history',headers=self.admin).json()['items'][0]['status'],'Consent withdrawn')
         self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=self.admin,json=decision).status_code,409)
+
+    def test_aggregate_threshold_suppresses_small_cohorts(self):
+        from unittest.mock import patch
+        from app import learning_dataset
+        rows=[{'resolved':True,'repeat_visit_required':False,'diagnosis_match':'Yes'} for _ in range(5)]
+        with patch.object(learning_dataset,'internal_dataset',return_value={'count':4,'records':rows[:4]}):
+            self.assertIsNone(learning_dataset.aggregate(None,1)['summary'])
+        with patch.object(learning_dataset,'internal_dataset',return_value={'count':5,'records':rows}):
+            report=learning_dataset.aggregate(None,1)
+        self.assertEqual(report['status'],'Ready')
+        self.assertEqual(report['summary'],{'records':5,'resolved':5,'repeat_visits':0,'diagnosis_matches':5})
 
     def test_reviewed_search_continuation_and_stale_scope(self):
         from unittest.mock import patch

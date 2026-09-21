@@ -259,6 +259,10 @@ $("switchRole").onclick = () =>
       ),
     ),
   );
+$("switchReviewer").onclick = () =>
+  busy($("switchReviewer"), async () =>
+    enter(await api("/api/demo?role=reviewer", { method: "POST" })),
+  );
 async function go(id) {
   screen = id;
   const version = ++pageVersion;
@@ -312,7 +316,7 @@ function datasetCandidateCards(items) {
   return items
     .map(
       (item) =>
-        `<article class="visit"><div class="actions">${badge(item.decision?.decision || "Second decision needed")}${badge("Outcome revision " + item.outcome_version)}</div><p class="muted">Prepared field-limited payload · SHA-256 ${esc(item.preview_sha256.slice(0, 16))}…</p><pre class="preview-code">${esc(JSON.stringify(item.preview, null, 2))}</pre>${item.decision ? `<p class="notice">${esc(item.decision.reason)}</p>` : `<form id="learningDatasetForm"><input type="hidden" name="outcome_revision_id" value="${esc(item.outcome_revision_id)}"><input type="hidden" name="outcome_sha256" value="${esc(item.outcome_sha256)}"><input type="hidden" name="preview_sha256" value="${esc(item.preview_sha256)}">${select("Second decision", "decision", ["Reject", "Approve local research"])}${area("Reason for decision", "reason", "", 'required minlength="5" maxlength="2000"')}<p class="error form-error" role="alert"></p><button class="primary">Retain dataset decision</button></form>`}</article>`,
+        `<article class="visit"><div class="actions">${badge(item.decision?.decision || "Second decision needed")}${badge("Outcome revision " + item.outcome_version)}</div><p class="muted">Prepared field-limited payload · SHA-256 ${esc(item.preview_sha256.slice(0, 16))}…</p><pre class="preview-code">${esc(JSON.stringify(item.preview, null, 2))}</pre>${item.decision ? `<p class="notice">${esc(item.decision.reason)}${item.decision.decision === "Approve local research" && !item.decision.independent ? " · Independent admin approval needed; excluded from the active dataset." : ""}</p>` : `<form id="learningDatasetForm"><input type="hidden" name="outcome_revision_id" value="${esc(item.outcome_revision_id)}"><input type="hidden" name="outcome_sha256" value="${esc(item.outcome_sha256)}"><input type="hidden" name="preview_sha256" value="${esc(item.preview_sha256)}">${select("Second decision", "decision", ["Reject", "Approve local research"])}${item.first_reviewer_id === user.id ? '<p class="notice">You prepared this record. Another company admin must approve it; you can still reject it.</p>' : ""}${area("Reason for decision", "reason", "", 'required minlength="5" maxlength="2000"')}<p class="error form-error" role="alert"></p><button class="primary">Retain dataset decision</button></form>`}</article>`,
     )
     .join("");
 }
@@ -457,6 +461,7 @@ const pages = {
       datasetCandidates,
       dataset,
       datasetHistory,
+      aggregate,
     ] = await Promise.all([
       api("/api/learning/metrics"),
       api("/api/learning/patterns"),
@@ -472,6 +477,14 @@ const pages = {
       user.role === "admin"
         ? api("/api/learning/dataset-history")
         : { items: [], next_offset: null },
+      user.role === "admin"
+        ? api("/api/learning/aggregate")
+        : {
+            eligible_count: 0,
+            minimum_count: 5,
+            status: "Below threshold",
+            summary: null,
+          },
     ]);
     return (
       head(
@@ -482,6 +495,9 @@ const pages = {
       `<div class="stats">${stat("Confirmed outcomes", m.records, "Engineer feedback records")}${stat("Diagnosis confirmed", m.diagnosis_confirmation_rate + "%", "Matches the initial diagnosis")}${stat("Repair resolution", m.repair_resolution_rate + "%", "Of confirmed outcomes")}${stat("Repeat visits", m.repeat_visit_rate + "%", "Of confirmed outcomes")}</div><div class="grid"><div class="panel"><h3>Patterns from completed repairs</h3>${ps.length ? ps.map((p) => `<div class="visit"><h4>${esc(p.predicted_diagnosis)}</h4><p class="muted">${p.cases} confirmed cases · ${p.confirmation_rate}% diagnosis confirmed · ${p.resolution_rate}% resolved</p></div>`).join("") : empty("More experience, better insight", "Record a repair outcome from an inspection to begin.")}</div><div class="panel"><h3>Workspace snapshot</h3><p>${a.total} total inspections</p><p>${a.resolved} resolved · ${a.remakes} requiring remakes</p><h3>Dataset maturity</h3>${badge(m.learning_status)}<p class="muted">Average usefulness: ${m.average_engineer_rating} / 5</p><div class="notice">Outcomes are collected as evidence. They do not automatically change the diagnostic rules.</div></div></div>${user.role === "admin" ? `<section class="panel" style="margin-top:22px"><h2>Governed outcome review</h2><p class="muted">Only the latest opted-in outcome revision is eligible. A decision is retained against its checksum. “Prepare” means further de-identification work may begin; it does not anonymise the record, train AI, or change diagnostic rules.</p>${reviewQueue.length ? reviewQueue.map((item) => `<article class="visit"><div class="actions">${badge(item.review?.decision || "Awaiting review")}${badge("Revision " + item.outcome_version)}</div><h3>${esc(item.confirmed_diagnosis)}</h3><p>Predicted: ${esc(item.predicted_diagnosis)}</p><p>Actual repair: ${esc(item.actual_repair)}</p><p>${item.resolved ? "Resolved" : "Unresolved"} · Outcome checksum ${esc(item.outcome_sha256.slice(0, 16))}…</p>${item.review ? `<p class="notice">Review reason: ${esc(item.review.reason)}</p>` : `<form id="learningReviewForm"><input type="hidden" name="outcome_revision_id" value="${esc(item.outcome_revision_id)}"><input type="hidden" name="outcome_sha256" value="${esc(item.outcome_sha256)}">${select("Decision", "decision", ["Prepare for de-identification", "Exclude"])}${area("Reason for decision", "reason", "", 'required minlength="5" maxlength="2000"')}<p class="error form-error" role="alert"></p><button class="primary">Record review decision</button></form>`}</article>`).join("") : empty("No opted-in outcomes awaiting review", "Engineers can opt in when recording a repair outcome. Only current revisions appear here.")}</section>` : ""}` +
       (user.role === "admin"
         ? `<section class="panel" style="margin-top:22px"><h2>Field-limited research candidates</h2><p class="muted">${dataset.count} currently approved for local company research. Review the exact prepared fields before a separate decision. Customer/site details, photos, measurements, notes and free-text diagnoses or repairs are excluded. Source linkage remains in this company database; these records are not anonymous or cleared for model training or external sharing.</p>${datasetCandidates.length ? datasetCandidateCards(datasetCandidates) : empty("No prepared candidates", "A current opted-in outcome needs a first-stage “Prepare for de-identification” review and complete provenance.")}</section>`
+        : "") +
+      (user.role === "admin"
+        ? `<section class="panel" style="margin-top:22px"><h2>Local research threshold</h2><p>${aggregate.eligible_count} independently approved current records · minimum ${aggregate.minimum_count}</p>${aggregate.summary ? `<p>${aggregate.summary.resolved} resolved · ${aggregate.summary.repeat_visits} repeat visits · ${aggregate.summary.diagnosis_matches} diagnosis matches</p>` : '<p class="notice">Aggregate statistics are withheld until the minimum cohort is reached.</p>'}<p class="muted">Internal company use only. These linked records are not anonymous and are not cleared for external sharing or AI training.</p></section>`
         : "") +
       (user.role === "admin"
         ? `<section class="panel" style="margin-top:22px"><h2>Review decision history</h2><p class="muted">Retained decisions remain visible after corrections or consent withdrawal. Historical “Prepare” decisions never authorise use of a later revision.</p><div id="learningHistoryList">${reviewHistory.items.length ? learningHistoryCards(reviewHistory.items) : empty("No review decisions yet", "A company admin decision will appear here after it is recorded.")}</div><div class="actions" id="learningHistoryMore">${reviewHistory.next_offset === null ? "" : `<button data-review-history-next="${reviewHistory.next_offset}">Load older decisions</button>`}</div></section>`
@@ -514,7 +530,16 @@ const pages = {
               "Activity will appear here",
               "Saved changes create an audit record for company admins.",
             )
-      }</div></div>`
+      }</div></div>` +
+      (user.role === "admin" && us.some((u) => u.role === "engineer")
+        ? `<section class="panel" style="margin-top:22px"><h3>Admin access</h3><p class="muted">Grant a trusted team member company-wide admin permissions so a different admin can make the second research decision.</p>${us
+            .filter((u) => u.role === "engineer")
+            .map(
+              (u) =>
+                `<div class="visit"><b>${esc(u.name)}</b><div class="actions"><button data-grant-admin="${u.id}" data-grant-name="${esc(u.name)}">Grant admin access</button></div></div>`,
+            )
+            .join("")}</section>`
+        : "")
     );
   },
   async notifications() {
@@ -812,6 +837,13 @@ document.addEventListener("click", async (e) => {
   if (b.dataset.demo) {
     await busy(b, async () =>
       enter(await api("/api/demo?role=" + b.dataset.demo, { method: "POST" })),
+    );
+    return;
+  }
+  if (b.dataset.grantAdmin) {
+    openModal(
+      "Grant company admin access",
+      `<form id="grantAdminForm" data-id="${esc(b.dataset.grantAdmin)}"><p>${esc(b.dataset.grantName)} will gain company-wide admin permissions, including access to other users’ records and governance decisions.</p>${area("Reason for access", "reason", "", 'required minlength="5" maxlength="1000"')}<p class="error form-error" role="alert"></p><button class="primary">Grant admin access</button></form>`,
     );
     return;
   }
@@ -1124,6 +1156,15 @@ document.addEventListener("submit", async (e) => {
         await send("/api/learning/dataset-decisions", data);
         await go("learning");
         toast("Dataset decision retained");
+      }
+      if (form.id === "grantAdminForm") {
+        await send(
+          `/api/company/users/${Number(form.dataset.id)}/grant-admin`,
+          data,
+        );
+        $("modal").close();
+        await go("company");
+        toast("Company admin access granted");
       }
       if (form.id === "photoForm") {
         const fd = new FormData(form);
