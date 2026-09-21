@@ -191,3 +191,5 @@ A server-owned core verification definition now records four structured final ch
 ## Product Passport repeat-failure intelligence
 
 Linked Passport inspections now expose transparent diagnosis recurrence counts using immutable originals where available and the latest retained outcome per inspection. The UI distinguishes single observations from repeated diagnoses, marks legacy mutable-source records, and recommends review only when repeat groups include unresolved or repeat-visit outcomes. No automatic rule changes, causation claims or cross-company pooling occur. Twenty-six tests pass. Next: performance hardening and governed, opt-in learning review.
+
+Company-admin learning review now retains append-only decisions on exact, latest opted-in outcome revisions. The UI presents a review queue with consent and checksum context, while corrections and opt-outs remove obsolete candidates. This is preparation for de-identification only; no anonymisation, model training, or rule changes occur. Migration 0009 and two endpoints support the workflow; twenty-seven tests pass. Next: historical governance view and reviewed de-identification with explicit second approval.

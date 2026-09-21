@@ -11,7 +11,7 @@ from sqlalchemy import select, func, update
 from sqlalchemy.orm import Session
 
 from .db import Base, engine, get_db
-from . import outcomes
+from . import outcomes, learning_reviews
 from . import verification
 from sqlalchemy.exc import IntegrityError
 from .models import Company, User, Job, Photo, LearningRecord, Customer, WorkOrder, ApprovalRequest, Notification, AuditEvent
@@ -394,6 +394,50 @@ def get_learning_metrics(user: User = Depends(user_dep), db: Session = Depends(g
 @app.get("/api/learning/patterns")
 def get_learning_patterns(user: User = Depends(user_dep), db: Session = Depends(get_db)):
     return learning_patterns(db,user.company_id,None if user.role=="admin" else user.id)
+
+
+class LearningReviewIn(BaseModel):
+    outcome_revision_id: str
+    outcome_sha256: str
+    decision: Literal["Prepare for de-identification", "Exclude"]
+    reason: str = Field(min_length=5, max_length=2000)
+
+
+@app.get("/api/learning/review-queue")
+def learning_review_queue(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    return learning_reviews.queue(db, user.company_id)
+
+
+@app.post("/api/learning/reviews")
+def decide_learning_review(data: LearningReviewIn, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    revision = db.get(outcomes.OutcomeRevision, data.outcome_revision_id)
+    if not revision or revision.company_id != user.company_id:
+        raise HTTPException(404, "Outcome revision not found")
+    if revision.sha256 != data.outcome_sha256 or not learning_reviews.integrity_valid(revision):
+        raise HTTPException(409, "Outcome revision changed or failed its integrity check")
+    latest = db.scalar(select(outcomes.OutcomeRevision).where(
+        outcomes.OutcomeRevision.job_id == revision.job_id,
+        outcomes.OutcomeRevision.company_id == user.company_id,
+    ).order_by(outcomes.OutcomeRevision.version.desc()))
+    if latest.id != revision.id:
+        raise HTTPException(409, "This outcome was corrected; review its latest revision")
+    if json.loads(revision.payload_json).get("anonymised_for_learning") is not True:
+        raise HTTPException(409, "This outcome is not opted in for review")
+    if db.scalar(select(learning_reviews.LearningReview).where(
+        learning_reviews.LearningReview.outcome_revision_id == revision.id
+    )):
+        raise HTTPException(409, "This outcome revision has already been reviewed")
+    reason = data.reason.strip()
+    if len(reason) < 5:
+        raise HTTPException(422, "Explain the review decision")
+    row = learning_reviews.append(db, revision, user.id, data.decision, reason)
+    audit_log(db, user.company_id, user.id, "learning.review_decided", "outcome_revision", revision.id, {"decision": data.decision, "sha256": revision.sha256})
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "This outcome revision has already been reviewed")
+    return {"id": row.id, "decision": row.decision, "outcome_revision_id": revision.id}
 
 class ManufacturerRouteIn(BaseModel):
     manufacturer_id: str

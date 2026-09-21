@@ -99,6 +99,43 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(IntegrityError):
             with engine.begin() as connection:connection.execute(text('DELETE FROM outcome_revisions'))
 
+    def test_governed_learning_review_tracks_exact_current_revision(self):
+        job=self.job().json();base='/api/jobs/'+job['id']
+        data={'confirmed_diagnosis':'Keep interference','actual_repair':'Adjusted keep',
+              'resolved':True,'verification_checks':'Repeated operation without catching',
+              'anonymised_for_learning':True,**self.verification(job['id'])}
+        self.assertEqual(self.client.post(base+'/learning',headers=self.engineer,json=data).status_code,200)
+        revision=self.client.get(base+'/outcome-history',headers=self.engineer).json()[-1]
+        queue=self.client.get('/api/learning/review-queue',headers=self.admin)
+        self.assertEqual(queue.status_code,200)
+        self.assertEqual(len(queue.json()),1)
+        self.assertEqual(queue.json()[0]['outcome_sha256'],revision['sha256'])
+        self.assertEqual(self.client.get('/api/learning/review-queue',headers=self.engineer).status_code,403)
+        request={'outcome_revision_id':queue.json()[0]['outcome_revision_id'],
+                 'outcome_sha256':revision['sha256'],
+                 'decision':'Prepare for de-identification','reason':'Complete checks and useful result'}
+        self.assertEqual(self.client.post('/api/learning/reviews',headers=self.engineer,json=request).status_code,403)
+        outsider=self.client.post('/api/register-company',json={'company_name':'Review outsider','admin_name':'Other','email':'review-outsider@example.com','password':'strong-password'}).json()
+        outsider_auth={'Authorization':'Bearer '+outsider['token']}
+        self.assertEqual(self.client.get('/api/learning/review-queue',headers=outsider_auth).json(),[])
+        self.assertEqual(self.client.post('/api/learning/reviews',headers=outsider_auth,json=request).status_code,404)
+        self.assertEqual(self.client.post('/api/learning/reviews',headers=self.admin,json={**request,'outcome_sha256':'0'*64}).status_code,409)
+        self.assertEqual(self.client.post('/api/learning/reviews',headers=self.admin,json=request).status_code,200)
+        self.assertEqual(self.client.post('/api/learning/reviews',headers=self.admin,json=request).status_code,409)
+        self.assertEqual(self.client.get('/api/learning/review-queue',headers=self.admin).json()[0]['review']['decision'],request['decision'])
+        with self.assertRaises(IntegrityError):
+            with engine.begin() as connection:connection.execute(text('UPDATE learning_reviews SET reason=\'changed\''))
+        data.update(expected_version=1,change_reason='Follow-up check corrected the outcome',actual_repair='Readjusted keep')
+        self.assertEqual(self.client.post(base+'/learning',headers=self.engineer,json=data).status_code,200)
+        self.assertEqual(self.client.post('/api/learning/reviews',headers=self.admin,json=request).status_code,409)
+        revised=self.client.get('/api/learning/review-queue',headers=self.admin).json()
+        self.assertEqual(len(revised),1)
+        self.assertEqual(revised[0]['outcome_version'],2)
+        self.assertIsNone(revised[0]['review'])
+        data.update(expected_version=2,change_reason='Customer withdrew learning consent',anonymised_for_learning=False)
+        self.assertEqual(self.client.post(base+'/learning',headers=self.engineer,json=data).status_code,200)
+        self.assertEqual(self.client.get('/api/learning/review-queue',headers=self.admin).json(),[])
+
     def test_reviewed_search_continuation_and_stale_scope(self):
         from unittest.mock import patch
         from types import SimpleNamespace

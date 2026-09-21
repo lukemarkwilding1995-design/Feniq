@@ -421,10 +421,11 @@ const pages = {
     );
   },
   async learning() {
-    const [m, ps, a] = await Promise.all([
+    const [m, ps, a, reviewQueue] = await Promise.all([
       api("/api/learning/metrics"),
       api("/api/learning/patterns"),
       api("/api/analytics"),
+      user.role === "admin" ? api("/api/learning/review-queue") : [],
     ]);
     return (
       head(
@@ -432,7 +433,7 @@ const pages = {
         "Repair insights",
         "Engineer-confirmed outcomes turn field experience into evidence.",
       ) +
-      `<div class="stats">${stat("Confirmed outcomes", m.records, "Engineer feedback records")}${stat("Diagnosis confirmed", m.diagnosis_confirmation_rate + "%", "Matches the initial diagnosis")}${stat("Repair resolution", m.repair_resolution_rate + "%", "Of confirmed outcomes")}${stat("Repeat visits", m.repeat_visit_rate + "%", "Of confirmed outcomes")}</div><div class="grid"><div class="panel"><h3>Patterns from completed repairs</h3>${ps.length ? ps.map((p) => `<div class="visit"><h4>${esc(p.predicted_diagnosis)}</h4><p class="muted">${p.cases} confirmed cases · ${p.confirmation_rate}% diagnosis confirmed · ${p.resolution_rate}% resolved</p></div>`).join("") : empty("More experience, better insight", "Record a repair outcome from an inspection to begin.")}</div><div class="panel"><h3>Workspace snapshot</h3><p>${a.total} total inspections</p><p>${a.resolved} resolved · ${a.remakes} requiring remakes</p><h3>Dataset maturity</h3>${badge(m.learning_status)}<p class="muted">Average usefulness: ${m.average_engineer_rating} / 5</p><div class="notice">Outcomes are collected as evidence. They do not automatically change the diagnostic rules.</div></div></div>`
+      `<div class="stats">${stat("Confirmed outcomes", m.records, "Engineer feedback records")}${stat("Diagnosis confirmed", m.diagnosis_confirmation_rate + "%", "Matches the initial diagnosis")}${stat("Repair resolution", m.repair_resolution_rate + "%", "Of confirmed outcomes")}${stat("Repeat visits", m.repeat_visit_rate + "%", "Of confirmed outcomes")}</div><div class="grid"><div class="panel"><h3>Patterns from completed repairs</h3>${ps.length ? ps.map((p) => `<div class="visit"><h4>${esc(p.predicted_diagnosis)}</h4><p class="muted">${p.cases} confirmed cases · ${p.confirmation_rate}% diagnosis confirmed · ${p.resolution_rate}% resolved</p></div>`).join("") : empty("More experience, better insight", "Record a repair outcome from an inspection to begin.")}</div><div class="panel"><h3>Workspace snapshot</h3><p>${a.total} total inspections</p><p>${a.resolved} resolved · ${a.remakes} requiring remakes</p><h3>Dataset maturity</h3>${badge(m.learning_status)}<p class="muted">Average usefulness: ${m.average_engineer_rating} / 5</p><div class="notice">Outcomes are collected as evidence. They do not automatically change the diagnostic rules.</div></div></div>${user.role === "admin" ? `<section class="panel" style="margin-top:22px"><h2>Governed outcome review</h2><p class="muted">Only the latest opted-in outcome revision is eligible. A decision is retained against its checksum. “Prepare” means further de-identification work may begin; it does not anonymise the record, train AI, or change diagnostic rules.</p>${reviewQueue.length ? reviewQueue.map((item) => `<article class="visit"><div class="actions">${badge(item.review?.decision || "Awaiting review")}${badge("Revision " + item.outcome_version)}</div><h3>${esc(item.confirmed_diagnosis)}</h3><p>Predicted: ${esc(item.predicted_diagnosis)}</p><p>Actual repair: ${esc(item.actual_repair)}</p><p>${item.resolved ? "Resolved" : "Unresolved"} · Outcome checksum ${esc(item.outcome_sha256.slice(0, 16))}…</p>${item.review ? `<p class="notice">Review reason: ${esc(item.review.reason)}</p>` : `<form id="learningReviewForm"><input type="hidden" name="outcome_revision_id" value="${esc(item.outcome_revision_id)}"><input type="hidden" name="outcome_sha256" value="${esc(item.outcome_sha256)}">${select("Decision", "decision", ["Prepare for de-identification", "Exclude"])}${area("Reason for decision", "reason", "", 'required minlength="5" maxlength="2000"')}<p class="error form-error" role="alert"></p><button class="primary">Record review decision</button></form>`}</article>`).join("") : empty("No opted-in outcomes awaiting review", "Engineers can opt in when recording a repair outcome. Only current revisions appear here.")}</section>` : ""}`
     );
   },
   async company() {
@@ -1026,6 +1027,11 @@ document.addEventListener("submit", async (e) => {
         $("modal").close();
         await go("learning");
         toast("Repair outcome saved");
+      }
+      if (form.id === "learningReviewForm") {
+        await send("/api/learning/reviews", data);
+        await go("learning");
+        toast("Review decision retained");
       }
       if (form.id === "photoForm") {
         const fd = new FormData(form);
