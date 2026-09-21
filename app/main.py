@@ -408,6 +408,13 @@ def learning_review_queue(user: User = Depends(require_admin), db: Session = Dep
     return learning_reviews.queue(db, user.company_id)
 
 
+@app.get("/api/learning/review-history")
+def learning_review_history(limit: int = 20, offset: int = 0, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    if limit < 1 or limit > 100 or offset < 0:
+        raise HTTPException(422, "Review history limit must be 1–100 and offset cannot be negative")
+    return learning_reviews.history(db, user.company_id, limit, offset)
+
+
 @app.post("/api/learning/reviews")
 def decide_learning_review(data: LearningReviewIn, user: User = Depends(require_admin), db: Session = Depends(get_db)):
     revision = db.get(outcomes.OutcomeRevision, data.outcome_revision_id)
