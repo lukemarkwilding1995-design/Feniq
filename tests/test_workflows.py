@@ -276,6 +276,50 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.post(url+'/events',headers=headers,json={'kind':'Service note','occurred_on':'2026-09-13','note':'Denied'}).status_code,404)
         self.assertEqual(self.client.post(url+'/events',headers=self.admin,json={'kind':'Service note','occurred_on':'invalid','note':'Invalid date'}).status_code,422)
 
+    def test_passport_repeat_failure_analysis_uses_original_diagnoses(self):
+        product=self.passport();base='/api/passports/'+product['id']
+        first=self.job(reference='RF-1',diagnosis='Locking point interference').json()
+        second=self.job(reference='RF-2',diagnosis='  locking POINT interference  ').json()
+        omitted=self.job(reference='RF-3').json()
+        for job in (first,second,omitted):
+            self.assertEqual(self.client.post(base+'/inspections',headers=self.engineer,json={'job_id':job['id']}).status_code,200)
+        resolved={'confirmed_diagnosis':'Locking point interference','actual_repair':'Adjusted keep','resolved':True,
+                  'verification_checks':'Full operation cycle passed',**self.verification(first['id'])}
+        self.assertEqual(self.client.post('/api/jobs/'+first['id']+'/learning',headers=self.engineer,json=resolved).status_code,200)
+        unresolved={'confirmed_diagnosis':'Locking point interference','actual_repair':'Adjustment attempted','resolved':False,
+                    'repeat_visit_required':True,'verification_checks':'Fault remained during operation',**self.verification(second['id'],'Fail')}
+        self.assertEqual(self.client.post('/api/jobs/'+second['id']+'/learning',headers=self.engineer,json=unresolved).status_code,200)
+        analysis=self.client.get(base,headers=self.engineer).json()['failure_analysis']
+        self.assertEqual(analysis['visible_linked_inspections'],3)
+        self.assertEqual(analysis['original_snapshot_cases'],3)
+        self.assertEqual(analysis['latest_outcomes'],2)
+        self.assertEqual(analysis['omitted_without_diagnosis'],1)
+        self.assertEqual(len(analysis['patterns']),1)
+        pattern=analysis['patterns'][0]
+        self.assertEqual(pattern['cases'],2);self.assertEqual(pattern['resolved'],1)
+        self.assertEqual(pattern['not_resolved'],1);self.assertEqual(pattern['repeat_visit_required'],1)
+        self.assertEqual(pattern['signal'],'Repeated diagnosis');self.assertTrue(pattern['requires_review'])
+        self.assertTrue(all(item['diagnosis_basis']=='Immutable original diagnosis' for item in pattern['occurrences']))
+        changed=self.client.patch('/api/jobs/'+first['id'],headers=self.engineer,json={
+            'customer':'Test site','fault':'Stiff handle','product':'Window','diagnosis':'Later edited diagnosis'
+        })
+        self.assertEqual(changed.status_code,200)
+        unchanged=self.client.get(base,headers=self.engineer).json()['failure_analysis']['patterns'][0]
+        self.assertEqual(unchanged['cases'],2)
+        self.assertEqual(unchanged['diagnosis'],'Locking point interference')
+        corrected={**unresolved,'resolved':True,'repeat_visit_required':False,
+                   'verification_checks':'Fault cleared on a later fictional test',
+                   'verification_answers':self.verification(second['id'])['verification_answers'],
+                   'expected_version':1,'change_reason':'Later verification completed'}
+        self.assertEqual(self.client.post('/api/jobs/'+second['id']+'/learning',headers=self.engineer,json=corrected).status_code,200)
+        updated=self.client.get(base,headers=self.engineer).json()['failure_analysis']['patterns'][0]
+        self.assertEqual(updated['cases'],2)
+        self.assertEqual(updated['resolved'],2)
+        self.assertEqual(updated['not_resolved'],0)
+        self.assertEqual(updated['repeat_visit_required'],0)
+        self.assertFalse(updated['requires_review'])
+        self.assertEqual(self.client.get('/api/jobs/'+second['id']+'/outcome-history',headers=self.engineer).json()[0]['payload']['resolved'],False)
+
     def test_approval_requires_review_and_current_scope(self):
         job=self.job(diagnosis='Initial finding').json()
         request=self.client.post('/api/approvals',headers=self.engineer,json={'job_id':job['id'],'approval_type':'Replacement','description':'Replace keep'}).json()

@@ -123,6 +123,7 @@ def register(app, user_dep, check_job):
     @app.get('/api/passports/{identifier}')
     def detail(identifier:str,user=Depends(user_dep),db:Session=Depends(get_db)):
         from .outcomes import history as outcome_history, serialise as serialise_outcome
+        from .repeat_failures import analyse as analyse_failures
         product=owned(db,ProductPassport,identifier,user)
         events=db.scalars(select(PassportEvent).where(PassportEvent.passport_id==identifier).order_by(PassportEvent.created_at,PassportEvent.id)).all()
         query=select(Job).join(PassportInspection,PassportInspection.job_id==Job.id).where(PassportInspection.passport_id==identifier,Job.company_id==user.company_id)
@@ -134,7 +135,8 @@ def register(app, user_dep, check_job):
             latest=serialise_outcome(rows[-1]) if rows else None
             inspections.append({'id':job.id,'reference':job.reference,'outcome':job.outcome,'created_at':job.created_at,
                                 'repair_outcome':latest,'outcome_revision_count':len(rows)})
-        return {'passport':product,'site':owned(db,Site,product.site_id,user),'events':events,'inspections':inspections}
+        return {'passport':product,'site':owned(db,Site,product.site_id,user),'events':events,
+                'inspections':inspections,'failure_analysis':analyse_failures(db,jobs)}
 
     @app.post('/api/passports/{identifier}/events')
     def add_event(identifier:str,data:EventIn,user=Depends(user_dep),db:Session=Depends(get_db)):

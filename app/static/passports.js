@@ -21,6 +21,13 @@ pages.passports = async function () {
 pages.passport = async function () {
   const d = await api("/api/passports/" + activePassport);
   const p = d.passport;
+  const analysis = d.failure_analysis;
+  const patterns = analysis.patterns
+    .map(
+      (item) =>
+        `<div class="visit"><div class="actions"><h4>${esc(item.diagnosis)}</h4>${badge(item.signal)}</div><p>${item.cases} linked inspection${item.cases === 1 ? "" : "s"} · ${item.resolved} resolved · ${item.not_resolved} not resolved · ${item.outcome_not_recorded} without retained outcome</p><p>${item.original_snapshot_cases} based on immutable original diagnosis · ${item.repeat_visit_required} requiring another visit</p>${item.requires_review ? '<p class="notice">Repeated diagnosis with an unresolved or follow-up outcome. Engineer review recommended.</p>' : ""}</div>`,
+    )
+    .join("");
   return (
     head(
       "PRODUCT PASSPORT",
@@ -43,6 +50,7 @@ pages.passport = async function () {
       .join(
         "",
       )}</div><p class="muted">Team-supplied identification. Verify product applicability against controlled manufacturer evidence.</p><div class="actions"><button data-passport-action="event">Add lifecycle note</button><button data-passport-action="link">Link inspection</button></div></section>` +
+    `<section class="panel" style="margin-top:24px"><div class="panel-head"><h3>Repeat-failure intelligence</h3>${badge(`${analysis.visible_linked_inspections} visible inspections`)}</div><p class="muted">${esc(analysis.method)}</p><p>${analysis.original_snapshot_cases} immutable original diagnoses · ${analysis.latest_outcomes} latest retained outcomes · ${analysis.omitted_without_diagnosis} records omitted without a diagnosis</p>${patterns || "<p>No diagnosis patterns are available yet.</p>"}</section>` +
     `<div class="grid" style="margin-top:24px"><section class="panel"><h3>Lifecycle history</h3><p class="muted">Entries are retained. Add a correction note to clarify an earlier entry.</p>${d.events.map((e) => `<div class="visit"><small>${esc(e.occurred_on)} · Recorded ${date(e.created_at)}</small><h4>${esc(e.kind)}</h4><p style="white-space:pre-wrap">${esc(e.note)}</p></div>`).join("")}</section><section class="panel"><h3>Linked inspections</h3>${d.inspections.length ? d.inspections.map((j) => `<div class="visit"><b>${esc(j.reference || "Inspection")}</b><p>${esc(j.outcome || "Outcome not recorded")}</p>${j.repair_outcome ? `<p><b>Latest repair:</b> ${esc(j.repair_outcome.payload.actual_repair)}</p><p><b>Final checks:</b> ${esc(j.repair_outcome.payload.verification_checks || "Not recorded in legacy feedback")}</p><small>Outcome revision ${j.repair_outcome.version} of ${j.outcome_revision_count} · ${j.repair_outcome.integrity_valid ? "Integrity checked" : "Integrity check failed"}</small>` : "<small>No retained repair outcome.</small>"}<p><button data-report="${j.id}">View report →</button></p></div>`).join("") : "<p>No linked reports available to your account.</p>"}</section></div>`
   );
 };

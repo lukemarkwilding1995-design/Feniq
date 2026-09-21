@@ -187,3 +187,7 @@ Inspection screens and PDFs now show the latest retained repair result alongside
 ## Structured repair verification
 
 A server-owned core verification definition now records four structured final checks with its revision and hash inside every new outcome revision. Resolved outcomes require all checks to pass plus narrative observed results. Historical unstructured revisions remain visible and clearly labelled. Twenty-five tests pass. This is FenIQ field workflow guidance rather than manufacturer specification. Next: governed Product Passport repeat-failure analysis.
+
+## Product Passport repeat-failure intelligence
+
+Linked Passport inspections now expose transparent diagnosis recurrence counts using immutable originals where available and the latest retained outcome per inspection. The UI distinguishes single observations from repeated diagnoses, marks legacy mutable-source records, and recommends review only when repeat groups include unresolved or repeat-visit outcomes. No automatic rule changes, causation claims or cross-company pooling occur. Twenty-six tests pass. Next: performance hardening and governed, opt-in learning review.
