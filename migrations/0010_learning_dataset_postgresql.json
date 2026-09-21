@@ -1,0 +1,6 @@
+[
+  "CREATE TABLE learning_dataset_decisions (id VARCHAR(64) NOT NULL PRIMARY KEY, company_id INTEGER NOT NULL REFERENCES companies(id), job_id VARCHAR(64) NOT NULL REFERENCES jobs(id), outcome_revision_id VARCHAR(64) NOT NULL REFERENCES outcome_revisions(id), outcome_sha256 VARCHAR(64) NOT NULL, learning_review_id VARCHAR(64) NOT NULL REFERENCES learning_reviews(id), preview_json TEXT NOT NULL, preview_sha256 VARCHAR(64) NOT NULL, decision VARCHAR(32) NOT NULL, reason TEXT NOT NULL, decided_by_id INTEGER NOT NULL REFERENCES users(id), created_at TIMESTAMP WITH TIME ZONE NOT NULL, CONSTRAINT uq_dataset_decision_revision UNIQUE (outcome_revision_id))",
+  "CREATE INDEX ix_learning_dataset_decisions_company_id ON learning_dataset_decisions (company_id)",
+  "CREATE FUNCTION protect_learning_dataset_decisions() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Dataset decision history is immutable'; END; $$",
+  "CREATE TRIGGER learning_dataset_decisions_immutable BEFORE UPDATE OR DELETE ON learning_dataset_decisions FOR EACH ROW EXECUTE FUNCTION protect_learning_dataset_decisions()"
+]

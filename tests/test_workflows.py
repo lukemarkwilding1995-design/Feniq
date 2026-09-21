@@ -49,6 +49,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/login',json={'email':'admin@example.com','password':'wrong'}).status_code,401)
         self.assertEqual(self.client.post('/api/register-company',json={'company_name':'  ','admin_name':'Admin','email':'bad','password':'password'}).status_code,422)
         self.assertEqual(self.client.get('/api/commercial/dashboard',headers=self.engineer).status_code,403)
+        self.assertIn('learning.dataset',self.client.get('/api/permissions',headers=self.admin).json()['permissions'])
+        self.assertNotIn('learning.dataset',self.client.get('/api/permissions',headers=self.engineer).json()['permissions'])
 
     def passport(self):
         customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Passport customer'}).json()
@@ -153,6 +155,73 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(pages[0]['next_offset'],1)
         self.assertIsNone(pages[1]['next_offset'])
         self.assertEqual({page['items'][0]['decision'] for page in pages}, {'Prepare for de-identification','Exclude'})
+
+    def test_field_limited_dataset_requires_separate_current_approval(self):
+        job=self.job(customer='Jane Smith at 12 Example Street',fault='Phone 07123 456789 reports a stiff handle',
+                     product='Window',diagnosis='Possible keep interference',module='free-text-module').json()
+        base='/api/jobs/'+job['id']
+        outcome={'confirmed_diagnosis':'Possible keep interference',
+                 'actual_repair':'Private customer note: call 07123 456789',
+                 'engineer_feedback':'Jane Smith lives at 12 Example Street',
+                 'resolved':False,'repeat_visit_required':True,
+                 'remake_or_part_correct':'Not applicable','engineer_rating':4,
+                 'anonymised_for_learning':True,**self.verification(job['id'])}
+        self.assertEqual(self.client.post(base+'/learning',headers=self.engineer,json=outcome).status_code,200)
+        candidates='/api/learning/dataset-candidates'
+        self.assertEqual(self.client.get(candidates,headers=self.admin).json(),[])
+        self.assertEqual(self.client.get(candidates,headers=self.engineer).status_code,403)
+        review_item=self.client.get('/api/learning/review-queue',headers=self.admin).json()[0]
+        first_review={'outcome_revision_id':review_item['outcome_revision_id'],
+                      'outcome_sha256':review_item['outcome_sha256'],
+                      'decision':'Prepare for de-identification','reason':'Fictional reviewed example'}
+        self.assertEqual(self.client.post('/api/learning/reviews',headers=self.admin,json=first_review).status_code,200)
+        candidate=self.client.get(candidates,headers=self.admin).json()[0]
+        preview=candidate['preview']
+        self.assertEqual(preview['schema_version'],1)
+        self.assertEqual(preview['product_category'],'Window')
+        self.assertEqual(preview['diagnostic_module'],'Unclassified')
+        self.assertEqual(preview['diagnosis_match'],'Yes')
+        self.assertTrue(preview['repeat_visit_required'])
+        self.assertEqual(set(preview['verification_answers']),{'repair_matches_record','full_operation_cycle','original_fault_rechecked','safety_security_rechecked'})
+        serialized=json.dumps(preview)
+        for forbidden in ('Jane Smith','12 Example Street','07123','customer','actual_repair','job_id','engineer_feedback','free-text-module'):
+            self.assertNotIn(forbidden,serialized)
+        outsider=self.client.post('/api/register-company',json={'company_name':'Dataset outsider','admin_name':'Other','email':'dataset-outsider@example.com','password':'strong-password'}).json()
+        outsider_auth={'Authorization':'Bearer '+outsider['token']}
+        self.assertEqual(self.client.get(candidates,headers=outsider_auth).json(),[])
+        self.assertEqual(self.client.get('/api/learning/internal-dataset',headers=outsider_auth).json()['count'],0)
+        self.assertEqual(self.client.get('/api/learning/dataset-history',headers=outsider_auth).json()['items'],[])
+        self.assertEqual(self.client.get('/api/learning/dataset-history',headers=self.engineer).status_code,403)
+        decision={'outcome_revision_id':candidate['outcome_revision_id'],
+                  'outcome_sha256':candidate['outcome_sha256'],
+                  'preview_sha256':candidate['preview_sha256'],
+                  'decision':'Approve local research','reason':'Field-limited preview checked'}
+        self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=self.engineer,json=decision).status_code,403)
+        self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=outsider_auth,json=decision).status_code,404)
+        self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=self.admin,json={**decision,'preview_sha256':'0'*64}).status_code,409)
+        self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=self.admin,json=decision).status_code,200)
+        self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=self.admin,json=decision).status_code,409)
+        dataset=self.client.get('/api/learning/internal-dataset',headers=self.admin).json()
+        self.assertEqual(dataset,{'count':1,'records':[preview]})
+        self.assertNotIn(job['id'],json.dumps(dataset))
+        decision_history=self.client.get('/api/learning/dataset-history',headers=self.admin).json()
+        self.assertEqual(decision_history['items'][0]['status'],'Current')
+        self.assertTrue(decision_history['items'][0]['preview_integrity_valid'])
+        self.assertTrue(decision_history['items'][0]['source_integrity_valid'])
+        self.assertEqual(decision_history['total'],1)
+        self.assertEqual(self.client.get('/api/learning/dataset-history',headers=self.admin,params={'limit':0}).status_code,422)
+        with engine.connect() as connection:
+            stored=connection.execute(text('SELECT preview_json FROM learning_dataset_decisions')).scalar()
+        self.assertNotIn('Jane Smith',stored)
+        self.assertNotIn('07123',stored)
+        with self.assertRaises(IntegrityError):
+            with engine.begin() as connection:connection.execute(text("UPDATE learning_dataset_decisions SET reason='changed'"))
+        outcome.update(expected_version=1,change_reason='Customer withdrew consent',anonymised_for_learning=False)
+        self.assertEqual(self.client.post(base+'/learning',headers=self.engineer,json=outcome).status_code,200)
+        self.assertEqual(self.client.get(candidates,headers=self.admin).json(),[])
+        self.assertEqual(self.client.get('/api/learning/internal-dataset',headers=self.admin).json()['count'],0)
+        self.assertEqual(self.client.get('/api/learning/dataset-history',headers=self.admin).json()['items'][0]['status'],'Consent withdrawn')
+        self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=self.admin,json=decision).status_code,409)
 
     def test_reviewed_search_continuation_and_stale_scope(self):
         from unittest.mock import patch

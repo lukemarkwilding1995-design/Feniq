@@ -406,6 +406,17 @@ td button {
 .visit small {
   display: block;
 }
+.preview-code {
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f5f8f5;
+  font-size: 12px;
+  line-height: 1.5;
+}
 .visit button {
   margin-top: 12px;
   font-size: 11px;

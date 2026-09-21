@@ -252,6 +252,8 @@ New metrics:
 
 FenIQ does **not** automatically retrain itself from every job. Engineer outcomes are collected as governed evidence first. Future rule/model changes should be evaluated against confirmed historical jobs before being promoted.
 
+Company-admin learning governance now has a first review of an opted-in outcome and a separate decision on a field-limited local research preview. The prepared payload uses controlled categories and verification answers only; it excludes free text and customer/site identifiers. Approved records are removed from the active company dataset when the outcome is corrected or consent is withdrawn. They remain linked to their source inside the company database, so they are not anonymous or authorised for external sharing or model training. See `docs/FIELD_LIMITED_LEARNING_DATASET_CYCLE_2026-09-21.md` for the schema and limits.
+
 This prevents one incorrect field conclusion from silently teaching the whole platform the wrong repair.
 
 ### Proprietary-data pathway

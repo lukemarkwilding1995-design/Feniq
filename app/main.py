@@ -11,7 +11,7 @@ from sqlalchemy import select, func, update
 from sqlalchemy.orm import Session
 
 from .db import Base, engine, get_db
-from . import outcomes, learning_reviews
+from . import outcomes, learning_reviews, learning_dataset
 from . import verification
 from sqlalchemy.exc import IntegrityError
 from .models import Company, User, Job, Photo, LearningRecord, Customer, WorkOrder, ApprovalRequest, Notification, AuditEvent
@@ -181,7 +181,7 @@ def audit_events(user:User=Depends(user_dep),db:Session=Depends(get_db)):
 @app.get("/api/permissions")
 def permissions(user:User=Depends(user_dep)):
     if user.role=="admin":
-        return {"role":"admin","permissions":["company.read","users.read","jobs.all","work_orders.manage","approvals.decide","audit.read","analytics.company"]}
+        return {"role":"admin","permissions":["company.read","users.read","jobs.all","work_orders.manage","approvals.decide","audit.read","analytics.company","learning.review","learning.dataset"]}
     return {"role":"engineer","permissions":["jobs.own","work_orders.assigned","approvals.request","learning.submit","guides.read","diagnostics.run"]}
 
 class CustomerIn(BaseModel):
@@ -445,6 +445,66 @@ def decide_learning_review(data: LearningReviewIn, user: User = Depends(require_
         db.rollback()
         raise HTTPException(409, "This outcome revision has already been reviewed")
     return {"id": row.id, "decision": row.decision, "outcome_revision_id": revision.id}
+
+
+class DatasetDecisionIn(BaseModel):
+    outcome_revision_id: str
+    outcome_sha256: str
+    preview_sha256: str
+    decision: Literal["Approve local research", "Reject"]
+    reason: str = Field(min_length=5, max_length=2000)
+
+
+@app.get("/api/learning/dataset-candidates")
+def learning_dataset_candidates(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    return learning_dataset.candidates(db, user.company_id)
+
+
+@app.post("/api/learning/dataset-decisions")
+def decide_learning_dataset(data: DatasetDecisionIn, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    revision = db.get(outcomes.OutcomeRevision, data.outcome_revision_id)
+    if not revision or revision.company_id != user.company_id:
+        raise HTTPException(404, "Outcome revision not found")
+    latest = db.scalar(select(outcomes.OutcomeRevision).where(
+        outcomes.OutcomeRevision.job_id == revision.job_id,
+        outcomes.OutcomeRevision.company_id == user.company_id,
+    ).order_by(outcomes.OutcomeRevision.version.desc()))
+    if latest.id != revision.id or revision.sha256 != data.outcome_sha256:
+        raise HTTPException(409, "Outcome or learning consent changed; reopen the preview")
+    review = db.scalar(select(learning_reviews.LearningReview).where(
+        learning_reviews.LearningReview.outcome_revision_id == revision.id,
+        learning_reviews.LearningReview.company_id == user.company_id,
+    ))
+    preview = learning_dataset.prepare(db, revision, review)
+    if preview is None or learning_dataset.digest(learning_dataset.encoded(preview)) != data.preview_sha256:
+        raise HTTPException(409, "The reviewed field-limited preview is unavailable or changed")
+    if db.scalar(select(learning_dataset.DatasetDecision).where(
+        learning_dataset.DatasetDecision.outcome_revision_id == revision.id
+    )):
+        raise HTTPException(409, "This outcome revision already has a dataset decision")
+    reason = data.reason.strip()
+    if len(reason) < 5:
+        raise HTTPException(422, "Explain the dataset decision")
+    row = learning_dataset.append(db, revision, review, preview, data.decision, reason, user.id)
+    audit_log(db, user.company_id, user.id, "learning.dataset_decided", "outcome_revision", revision.id, {"decision": data.decision, "preview_sha256": row.preview_sha256})
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "This outcome revision already has a dataset decision")
+    return {"id": row.id, "decision": row.decision}
+
+
+@app.get("/api/learning/internal-dataset")
+def learning_internal_dataset(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    return learning_dataset.internal_dataset(db, user.company_id)
+
+
+@app.get("/api/learning/dataset-history")
+def learning_dataset_history(limit: int = 20, offset: int = 0, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    if limit < 1 or limit > 100 or offset < 0:
+        raise HTTPException(422, "Dataset history limit must be 1–100 and offset cannot be negative")
+    return learning_dataset.history(db, user.company_id, limit, offset)
 
 class ManufacturerRouteIn(BaseModel):
     manufacturer_id: str
