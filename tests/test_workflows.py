@@ -172,6 +172,41 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/privacy-requests/'+deletion['id']+'/access-preview',
                                          headers=self.admin).status_code,409)
 
+    def test_privacy_inventory_tracks_approval_and_learning_records(self):
+        customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Fictional operations customer'}).json()
+        job=self.job(customer_id=customer['id'],reference='OPERATIONS-SCOPE').json()
+        request=self.client.post('/api/privacy-requests',headers=self.admin,json={
+            'customer_id':customer['id'],'kind':'Access','summary':'Review fictional operational records'}).json()
+        url='/api/privacy-requests/'+request['id']
+        initial=self.client.get(url+'/inventory',headers=self.admin).json()
+        row=initial['inventory']['inspections'][0]
+        self.assertEqual(row['commercial_approvals']['count'],0)
+        self.assertEqual(row['learning_records']['count'],0)
+        approval=self.client.post('/api/approvals',headers=self.engineer,json={
+            'job_id':job['id'],'approval_type':'Parts','description':'Fictional commercial decision'}).json()
+        self.assertEqual(approval['job_id'],job['id'])
+        after_approval=self.client.get(url+'/inventory',headers=self.admin).json()
+        self.assertNotEqual(initial['inventory_sha256'],after_approval['inventory_sha256'])
+        self.assertEqual(after_approval['inventory']['inspections'][0]['commercial_approvals']['count'],1)
+        outcome={'confirmed_diagnosis':'Fictional finding','actual_repair':'Fictional check',
+                 'resolved':False,**self.verification(job['id'])}
+        self.assertEqual(self.client.post('/api/jobs/'+job['id']+'/learning',headers=self.engineer,
+                                          json=outcome).status_code,200)
+        after_learning=self.client.get(url+'/inventory',headers=self.admin).json()
+        self.assertNotEqual(after_approval['inventory_sha256'],after_learning['inventory_sha256'])
+        self.assertEqual(after_learning['inventory']['inspections'][0]['learning_records']['count'],1)
+        self.assertNotIn('Fictional commercial decision',json.dumps(after_learning))
+        self.assertEqual(self.client.patch(url,headers=self.admin,json={
+            'version':1,'status':'Investigating','note':'Checking fictional operational scope'}).status_code,200)
+        self.assertEqual(self.client.post(url+'/scope-review',headers=self.admin,json={
+            'version':2,'inventory_sha256':after_learning['inventory_sha256'],
+            'identity_checked':True,'linked_records_checked':True,'unlinked_records_reviewed':True,
+            'note':'Reviewed fictional operations data separately'}).status_code,200)
+        draft=self.client.get(url+'/access-preview',headers=self.admin).json()
+        self.assertNotIn('commercial_approvals',draft)
+        self.assertNotIn('learning_records',draft)
+        self.assertNotIn('Fictional commercial decision',json.dumps(draft))
+
     def test_inspection_customer_link_is_explicit_and_company_scoped(self):
         customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Linked fictional customer'}).json()
         other=self.client.post('/api/customers',headers=self.admin,json={'name':'Other fictional customer'}).json()
