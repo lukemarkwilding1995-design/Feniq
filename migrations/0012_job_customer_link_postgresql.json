@@ -1,0 +1,4 @@
+[
+  "ALTER TABLE jobs ADD COLUMN customer_id VARCHAR(64) REFERENCES customers(id)",
+  "CREATE INDEX ix_jobs_customer_id ON jobs (customer_id)"
+]

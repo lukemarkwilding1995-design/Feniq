@@ -18,9 +18,10 @@ def capture(db, job, actor_id, answers=None, origin="legacy_capture"):
     from .diagnostics import MODULES
     module = MODULES.get(job.module, {})
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "job_id": job.id,
         "company_id": job.company_id,
+        "customer_id": job.customer_id,
         "engineer_id": job.engineer_id,
         "customer": job.customer,
         "reference": job.reference,

@@ -83,6 +83,7 @@ class Login(AccountInput):
 
 class JobIn(BaseModel):
     customer: str=Field(min_length=1, max_length=255)
+    customer_id: str | None=None
     reference: str=""
     product: str=""
     system_name: str=""
@@ -625,9 +626,16 @@ def create_job(data: JobIn, user: User = Depends(user_dep), db: Session = Depend
         if user.role != "admin" and work_order.assigned_engineer_id != user.id: raise HTTPException(403,"Work order is not assigned to you")
         if work_order.job_id: raise HTTPException(409,"This work order already has an inspection")
         if work_order.status in {"Complete","Cancelled"}: raise HTTPException(409,"An administrator must reopen this work order before starting an inspection")
+    if work_order and work_order.customer_id and data.customer_id and work_order.customer_id != data.customer_id:
+        raise HTTPException(409,"Inspection customer must match the work order")
+    customer_id = work_order.customer_id if work_order and work_order.customer_id else data.customer_id
+    if customer_id:
+        customer = db.get(Customer, customer_id)
+        if not customer or customer.company_id != user.company_id:
+            raise HTTPException(404,"Customer not found")
     job=Job(
         id=str(uuid.uuid4()), company_id=user.company_id, engineer_id=(work_order.assigned_engineer_id if work_order and work_order.assigned_engineer_id else user.id),
-        customer=data.customer,reference=data.reference,product=data.product,system_name=data.system_name,
+        customer_id=customer_id,customer=data.customer,reference=data.reference,product=data.product,system_name=data.system_name,
         fault=data.fault,module=data.module,diagnosis=data.diagnosis,confidence=max(0,min(100,data.confidence)),
         evidence_json=json.dumps(data.evidence),recommendation=data.recommendation,work_done=data.work_done,
         parts_required=data.parts_required,outcome=data.outcome,engineer_notes=data.engineer_notes,
@@ -689,7 +697,7 @@ def check_job(job,user):
 def job_json(j,db):
     photos=db.scalars(select(Photo).where(Photo.job_id==j.id).order_by(Photo.created_at)).all()
     return {
-        "id":j.id,"created_at":j.created_at.isoformat(),"customer":j.customer,"reference":j.reference,
+        "id":j.id,"created_at":j.created_at.isoformat(),"customer_id":j.customer_id,"customer":j.customer,"reference":j.reference,
         "product":j.product,"system_name":j.system_name,"fault":j.fault,"module":j.module,
         "diagnosis":j.diagnosis,"confidence":j.confidence,"evidence":json.loads(j.evidence_json or "[]"),
         "recommendation":j.recommendation,"work_done":j.work_done,"parts_required":j.parts_required,
@@ -801,6 +809,8 @@ def validate_work_order(data,user,db):
         job=db.get(Job,data.job_id)
         if data.assigned_engineer_id!=job.engineer_id:
             raise HTTPException(422,"The visit engineer must match the linked inspection engineer")
+        if job.customer_id and job.customer_id!=data.customer_id:
+            raise HTTPException(409,"Work order customer must match the linked inspection")
     if data.scheduled_for:
         from datetime import datetime
         try: datetime.fromisoformat(data.scheduled_for)
@@ -820,13 +830,15 @@ def edit_work_order(work_order_id:str,data:WorkOrderIn,user:User=Depends(require
 @app.patch("/api/jobs/{job_id}")
 def edit_job(job_id:str,data:JobIn,user:User=Depends(user_dep),db:Session=Depends(get_db)):
     job=db.get(Job,job_id);check_job(job,user)
+    if "customer_id" in data.model_fields_set and data.customer_id!=job.customer_id:
+        raise HTTPException(409,"The confirmed customer link cannot be changed through an inspection edit")
     if db.scalar(select(WorkOrder.id).where(WorkOrder.job_id==job.id,WorkOrder.status=="Complete")):
         raise HTTPException(409,"An administrator must reopen the completed visit before editing its inspection")
     old_scope=approval_scope(job)
     old_service=(job.work_done,job.outcome,job.signature,job.engineer_notes)
     capture_snapshot(db,job,user.id)
     apply_diagnosis(data)
-    values=data.model_dump(exclude={"evidence","diagnostic_answers","work_order_id"})
+    values=data.model_dump(exclude={"evidence","diagnostic_answers","work_order_id","customer_id"})
     for key,value in values.items(): setattr(job,key,value)
     job.evidence_json=json.dumps(data.evidence)
     if old_scope!=approval_scope(job) or old_service!=(job.work_done,job.outcome,job.signature,job.engineer_notes):

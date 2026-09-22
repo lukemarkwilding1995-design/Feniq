@@ -172,6 +172,35 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/privacy-requests/'+deletion['id']+'/access-preview',
                                          headers=self.admin).status_code,409)
 
+    def test_inspection_customer_link_is_explicit_and_company_scoped(self):
+        customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Linked fictional customer'}).json()
+        other=self.client.post('/api/customers',headers=self.admin,json={'name':'Other fictional customer'}).json()
+        outsider=self.client.post('/api/register-company',json={
+            'company_name':'Link outsider','admin_name':'Other','email':'link-outside@example.test',
+            'password':'strong-password'}).json()
+        outside_auth={'Authorization':'Bearer '+outsider['token']}
+        outside_customer=self.client.post('/api/customers',headers=outside_auth,json={'name':'Outside'}).json()
+        self.assertEqual(self.job(customer_id=outside_customer['id']).status_code,404)
+        direct=self.job(customer='Site label differs from customer name',customer_id=customer['id']).json()
+        self.assertEqual(direct['customer_id'],customer['id'])
+        snapshot=self.client.get('/api/jobs/'+direct['id']+'/diagnostic-snapshot',headers=self.engineer).json()
+        self.assertEqual(snapshot['payload']['customer_id'],customer['id'])
+        request=self.client.post('/api/privacy-requests',headers=self.admin,json={
+            'customer_id':customer['id'],'kind':'Access','summary':'Review fictional linked inspection'}).json()
+        inventory=self.client.get('/api/privacy-requests/'+request['id']+'/inventory',headers=self.admin).json()['inventory']
+        self.assertIn(direct['id'],[row['id'] for row in inventory['inspections']])
+        self.assertEqual(inventory['possible_unlinked_inspections'],[])
+        self.assertEqual(self.client.patch('/api/jobs/'+direct['id'],headers=self.engineer,
+                                           json={**direct,'customer_id':other['id']}).status_code,409)
+        order=self.client.post('/api/work-orders',headers=self.admin,json={
+            'title':'Linked visit','customer_id':customer['id'],'assigned_engineer_id':self.engineer_id}).json()
+        self.assertEqual(self.job(work_order_id=order['id'],customer_id=other['id']).status_code,409)
+        from_order=self.job(work_order_id=order['id']).json()
+        self.assertEqual(from_order['customer_id'],customer['id'])
+        self.assertEqual(self.client.patch('/api/work-orders/'+order['id'],headers=self.admin,
+                                           json={**order,'job_id':from_order['id'],
+                                                 'customer_id':other['id']}).status_code,409)
+
     def passport(self):
         customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Passport customer'}).json()
         site=self.client.post('/api/sites',headers=self.admin,json={'customer_id':customer['id'],'name':'Site A','address':'Fictional site'}).json()

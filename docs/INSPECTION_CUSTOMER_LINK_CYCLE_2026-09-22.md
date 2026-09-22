@@ -1,0 +1,7 @@
+# Explicit inspection customer links — 22 September 2026
+
+Branch: `feniq-phase1-platform`. Migration `0012_job_customer_link` adds nullable `jobs.customer_id` and an index for SQLite and PostgreSQL. Existing jobs remain null: a free-text customer name is not proof of ownership. Apply migrations with application writers stopped and a backup; this is a forward-only migration. Restore the backup if deployment must be rolled back.
+
+New standalone inspections may select an existing company customer. Starting from a customer card selects that customer, while a linked work order supplies its customer automatically. The API rejects a foreign-company customer and a customer that conflicts with the work order. Inspection edits cannot switch an established link; work-order changes cannot conflict with a linked inspection. The original diagnostic snapshot retains the new link for new records, while earlier snapshots remain unchanged.
+
+The privacy request inventory now includes inspections linked directly to its customer, even without a work order or Product Passport. Exact free-text name matches remain separate manual-review leads and are excluded from the Access draft. No legacy job is linked by name, and no customer data is disclosed or erased automatically. Production work remains: a reviewed admin correction flow for mislinked or legacy jobs, wider data mapping, and a live PostgreSQL migration run.

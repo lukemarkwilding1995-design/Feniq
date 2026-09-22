@@ -113,6 +113,10 @@ def register(app, require_admin):
             WorkOrder.customer_id == request.customer_id,
         ).order_by(WorkOrder.id)).all()
         job_ids = {row.job_id for row in orders if row.job_id}
+        direct_jobs = db.scalars(select(Job.id).where(
+            Job.company_id == request.company_id, Job.customer_id == request.customer_id
+        )).all()
+        job_ids.update(direct_jobs)
         passport_jobs = db.scalars(select(PassportInspection.job_id).where(
             PassportInspection.passport_id.in_(passport_ids)
         )).all()
@@ -185,7 +189,7 @@ def register(app, require_admin):
                                                "photo_metadata_sha256": hashlib.sha256(json.dumps(photo_groups[row.id]).encode()).hexdigest()} for row in possible_unlinked],
             "technical_cases": [{"id": row.id, "title": row.title, "record_sha256": record_digest(row),
                                  "case_events": history_digest(case_history, row.id)} for row in cases],
-            "scope_note": "The main inventory uses explicit customer, site, passport and work-order links. Exact customer-name matches below are unverified leads, not linked records; other names and systems may be missed. Private library content and media bytes require manual review; photo metadata counts are not file integrity checks.",
+            "scope_note": "The main inventory uses explicit inspection-customer, site, passport and work-order links. Exact customer-name matches below are unverified leads, not linked records; other names and systems may be missed. Private library content and media bytes require manual review; photo metadata counts are not file integrity checks.",
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return {"inventory": payload, "inventory_sha256": hashlib.sha256(encoded.encode()).hexdigest()}

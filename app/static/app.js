@@ -70,8 +70,8 @@ const field = (label, name, value = "", type = "text", extra = "") =>
   `<label>${esc(label)}<input name="${name}" type="${type}" value="${esc(value)}" ${extra}></label>`;
 const area = (label, name, value = "", extra = "") =>
   `<label>${esc(label)}<textarea name="${name}" ${extra}>${esc(value)}</textarea></label>`;
-const select = (label, name, items, value = "", placeholder = "") =>
-  `<label>${esc(label)}<select name="${name}">${options(items, value, placeholder)}</select></label>`;
+const select = (label, name, items, value = "", placeholder = "", extra = "") =>
+  `<label>${esc(label)}<select name="${name}" ${extra}>${options(items, value, placeholder)}</select></label>`;
 const empty = (title, desc) =>
   `<div class="empty"><b>${esc(title)}</b><p>${esc(desc)}</p></div>`;
 const head = (eyebrow, title, sub = "", action = "") =>
@@ -442,7 +442,7 @@ const pages = {
         "Site details close to the work they belong to.",
         '<button class="primary" data-action="new-customer">+ Add customer</button>',
       ) +
-      `<div class="cards">${cs.length ? cs.map((c) => `<article class="panel"><div class="eyebrow">CUSTOMER / SITE</div><h3>${esc(c.name)}</h3><p>${esc(c.address || "No address recorded")}</p><p class="muted">${esc(c.contact_name)}<br>${esc(c.email)}<br>${esc(c.phone)}</p><button data-customer-inspect="${esc(c.name)}">New inspection ↗</button></article>`).join("") : empty("Your customer directory starts here", "Add a customer to use them when scheduling visits.")}</div>`
+      `<div class="cards">${cs.length ? cs.map((c) => `<article class="panel"><div class="eyebrow">CUSTOMER / SITE</div><h3>${esc(c.name)}</h3><p>${esc(c.address || "No address recorded")}</p><p class="muted">${esc(c.contact_name)}<br>${esc(c.email)}<br>${esc(c.phone)}</p><button data-customer-inspect="${esc(c.id)}" data-customer-name="${esc(c.name)}">New inspection ↗</button></article>`).join("") : empty("Your customer directory starts here", "Add a customer to use them when scheduling visits.")}</div>`
     );
   },
   async approvals() {
@@ -588,7 +588,7 @@ const pages = {
     );
   },
   async inspection() {
-    return renderDetails();
+    return renderDetails(await api("/api/customers"));
   },
   async checks() {
     return renderChecks();
@@ -686,9 +686,10 @@ function guideCards(gs) {
         .join("")
     : empty("No matching guides", "Try another product or component name.");
 }
-function startInspection(customer = "", order = null) {
+function startInspection(customer = "", order = null, customerId = null) {
   draft = {
     customer,
+    customer_id: order?.customer_id || customerId,
     product: "French Door",
     outcome: "Further Investigation",
   };
@@ -701,14 +702,14 @@ function startInspection(customer = "", order = null) {
   }
   go("inspection");
 }
-function renderDetails() {
+function renderDetails(customers) {
   return (
     head(
       "NEW INSPECTION",
       "Start with the essentials",
       "Capture the site and reported issue before physical checks.",
     ) +
-    `<div class="stepper"><span class="current">1 · Details</span>→<span>2 · Physical checks</span>→<span>3 · Repair & report</span></div><form id="detailsForm" class="panel form-card"><div class="form-grid">${field("Customer / site", "customer", draft.customer, "text", 'required maxlength="255"')}${field("Job reference", "reference", draft.reference, "text", 'maxlength="120"')}${select("Product", "product", ["French Door", "Window", "Residential Door", "Bifold", "Sliding Door", "Tilt & Turn"], draft.product)}${field("System / manufacturer", "system_name", draft.system_name)}<div class="wide">${area("Reported fault", "fault", draft.fault, "required")}</div><div class="wide">${select("Diagnostic module", "module", catalogue, draft.module || catalogue.find((m) => m.products.includes(draft.product))?.id)}</div></div><div class="notice">Select the module that matches your physical investigation. No measurements or test results are assumed.</div><button class="primary">Continue to physical checks →</button></form>`
+    `<div class="stepper"><span class="current">1 · Details</span>→<span>2 · Physical checks</span>→<span>3 · Repair & report</span></div><form id="detailsForm" class="panel form-card"><div class="form-grid">${field("Customer / site", "customer", draft.customer, "text", 'required maxlength="255"')}${select("Linked customer record", "customer_id", customers, draft.customer_id, "No confirmed link", editing || (workOrderId && draft.customer_id) ? "disabled" : "")}${field("Job reference", "reference", draft.reference, "text", 'maxlength="120"')}${select("Product", "product", ["French Door", "Window", "Residential Door", "Bifold", "Sliding Door", "Tilt & Turn"], draft.product)}${field("System / manufacturer", "system_name", draft.system_name)}<div class="wide">${area("Reported fault", "fault", draft.fault, "required")}</div><div class="wide">${select("Diagnostic module", "module", catalogue, draft.module || catalogue.find((m) => m.products.includes(draft.product))?.id)}</div></div><div class="notice">Select a customer record only when its identity is confirmed. Existing inspection links cannot be changed in this form. No measurements or test results are assumed.</div><button class="primary">Continue to physical checks →</button></form>`
   );
 }
 function renderChecks() {
@@ -981,7 +982,7 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (b.dataset.customerInspect) {
-    startInspection(b.dataset.customerInspect);
+    startInspection(b.dataset.customerName, null, b.dataset.customerInspect);
     return;
   }
   if (b.dataset.startOrder) {
