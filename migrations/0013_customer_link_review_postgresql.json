@@ -1,0 +1,6 @@
+[
+  "CREATE TABLE job_customer_link_events (id VARCHAR(64) NOT NULL PRIMARY KEY, company_id INTEGER NOT NULL REFERENCES companies(id), job_id VARCHAR(64) NOT NULL REFERENCES jobs(id), old_customer_id VARCHAR(64) REFERENCES customers(id), new_customer_id VARCHAR(64) REFERENCES customers(id), actor_id INTEGER NOT NULL REFERENCES users(id), reason TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL)",
+  "CREATE INDEX ix_job_customer_link_events_company_id ON job_customer_link_events (company_id)",
+  "CREATE INDEX ix_job_customer_link_events_job_id ON job_customer_link_events (job_id)",
+  "CREATE TRIGGER job_customer_link_events_immutable BEFORE UPDATE OR DELETE ON job_customer_link_events FOR EACH ROW EXECUTE FUNCTION feniq_snapshot_immutable()"
+]

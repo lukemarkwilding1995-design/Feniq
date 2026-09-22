@@ -209,3 +209,5 @@ Admin-only privacy requests now have a checksum-bound inventory of explicitly li
 The request inventory additionally flags exact-name, company-local inspections lacking a structured link as possible manual-review leads. They are checksum-bound but excluded from the Access draft until ownership is established through an explicit link; a name match alone is not evidence of data-subject identity.
 
 Migration 0012 adds an explicit, nullable inspection-customer link. New inspections can bind to an existing company customer, with work-order consistency checks, and privacy inventory follows the direct link. Legacy jobs remain unlinked until reviewed; no name-based backfill is performed. See `INSPECTION_CUSTOMER_LINK_CYCLE_2026-09-22.md`.
+
+Migration 0013 adds an immutable history for admin-reviewed customer-link corrections on inspections. Identity confirmation, a reason, tenant validation, stale-link protection and work-order/passport conflict checks gate changes. The original diagnosis snapshot remains intact. See `CUSTOMER_LINK_CORRECTION_CYCLE_2026-09-22.md`.

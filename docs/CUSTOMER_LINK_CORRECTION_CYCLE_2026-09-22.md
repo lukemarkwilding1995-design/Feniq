@@ -1,0 +1,7 @@
+# Reviewed inspection customer-link corrections — 22 September 2026
+
+Branch: `feniq-phase1-platform`. Migration `0013_customer_link_review` adds immutable `job_customer_link_events` with the old and new customer IDs, actor, reason and time. Apply with application writers stopped and a backup. It is forward-only; restore a backup for deployment rollback.
+
+A company admin can review or correct an inspection's structured customer link from its report. The admin must attest to checking identity and record a reason. The request includes the current link, and an atomic conditional update rejects stale corrections. A new target must be a customer in the same company. A direct link cannot be cleared or changed in conflict with a linked work order or Product Passport. New passport and work-order links also reject customer conflicts. Engineers and other companies cannot read or use the correction endpoint.
+
+The original diagnostic snapshot is never rewritten. The report displays the current link and retained corrections separately from the original free-text customer/site label. Privacy request inventories follow the corrected explicit link and invalidate earlier scope reviews when the inventory changes. Correction changes no service conclusion or customer request status and discloses no data. Production work remains: reconciliation of any pre-existing contradictory legacy links, a live PostgreSQL migration run, and a fuller customer data map.

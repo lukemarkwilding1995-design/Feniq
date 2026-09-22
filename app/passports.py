@@ -8,7 +8,7 @@ from sqlalchemy import String, Text, ForeignKey, DateTime, select
 from sqlalchemy.orm import Mapped, mapped_column, Session
 from sqlalchemy.exc import IntegrityError
 from .db import Base, get_db
-from .models import now, Customer, Job
+from .models import now, Customer, Job, WorkOrder
 from .audit import log
 
 
@@ -147,8 +147,16 @@ def register(app, user_dep, check_job):
 
     @app.post('/api/passports/{identifier}/inspections')
     def link(identifier:str,data:LinkIn,user=Depends(user_dep),db:Session=Depends(get_db)):
-        owned(db,ProductPassport,identifier,user)
+        product=owned(db,ProductPassport,identifier,user)
         job=db.get(Job,data.job_id);check_job(job,user)
+        site=owned(db,Site,product.site_id,user)
+        if job.customer_id and job.customer_id!=site.customer_id:
+            raise HTTPException(409,'Passport customer conflicts with the inspection customer')
+        linked_customers=set(db.scalars(select(WorkOrder.customer_id).where(
+            WorkOrder.company_id==user.company_id,WorkOrder.job_id==job.id,
+            WorkOrder.customer_id.is_not(None))).all())
+        if any(customer_id!=site.customer_id for customer_id in linked_customers):
+            raise HTTPException(409,'Passport customer conflicts with a linked work order')
         prior=db.scalar(select(PassportInspection).where(PassportInspection.job_id==job.id))
         if prior:
             if prior.passport_id==identifier:return {'ok':True}

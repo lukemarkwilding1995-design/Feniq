@@ -201,6 +201,72 @@ class WorkflowTests(unittest.TestCase):
                                            json={**order,'job_id':from_order['id'],
                                                  'customer_id':other['id']}).status_code,409)
 
+    def test_admin_customer_link_correction_retains_history_and_respects_other_links(self):
+        first=self.client.post('/api/customers',headers=self.admin,json={'name':'Fictional first'}).json()
+        second=self.client.post('/api/customers',headers=self.admin,json={'name':'Fictional second'}).json()
+        outsider=self.client.post('/api/register-company',json={
+            'company_name':'Correction outsider','admin_name':'Other',
+            'email':'correction-outside@example.test','password':'strong-password'}).json()
+        outside_auth={'Authorization':'Bearer '+outsider['token']}
+        outside_customer=self.client.post('/api/customers',headers=outside_auth,json={'name':'Other tenant'}).json()
+        job=self.job(customer='Fictional first',reference='LEGACY-1').json()
+        url='/api/jobs/'+job['id']+'/customer-link'
+        history_url='/api/jobs/'+job['id']+'/customer-link-history'
+        review={'expected_customer_id':None,'target_customer_id':first['id'],
+                'identity_confirmed':True,'reason':'Verified fictional customer and original service record'}
+        self.assertEqual(self.client.get(history_url,headers=self.engineer).status_code,403)
+        self.assertEqual(self.client.post(url,headers=self.engineer,json=review).status_code,403)
+        self.assertEqual(self.client.get(history_url,headers=outside_auth).status_code,404)
+        self.assertEqual(self.client.post(url,headers=outside_auth,json=review).status_code,404)
+        self.assertEqual(self.client.post(url,headers=self.admin,json={**review,'identity_confirmed':False}).status_code,422)
+        self.assertEqual(self.client.post(url,headers=self.admin,json={**review,'target_customer_id':outside_customer['id']}).status_code,404)
+        changed=self.client.post(url,headers=self.admin,json=review)
+        self.assertEqual(changed.status_code,200)
+        self.assertEqual(changed.json()['customer_id'],first['id'])
+        self.assertEqual(self.client.post(url,headers=self.admin,json=review).status_code,409)
+        history=self.client.get(history_url,headers=self.admin).json()
+        self.assertEqual(len(history),1)
+        self.assertEqual(history[0]['old_customer_id'],None)
+        self.assertEqual(history[0]['new_customer_id'],first['id'])
+        self.assertEqual(history[0]['actor_name'],'Admin')
+        original=self.client.get('/api/jobs/'+job['id']+'/diagnostic-snapshot',headers=self.engineer).json()
+        self.assertIsNone(original['payload']['customer_id'])
+        request=self.client.post('/api/privacy-requests',headers=self.admin,json={
+            'customer_id':first['id'],'kind':'Access','summary':'Review corrected fictional inspection'}).json()
+        inventory=self.client.get('/api/privacy-requests/'+request['id']+'/inventory',headers=self.admin).json()['inventory']
+        self.assertEqual([row['id'] for row in inventory['inspections']],[job['id']])
+        self.assertEqual(inventory['possible_unlinked_inspections'],[])
+        moved=self.client.post(url,headers=self.admin,json={**review,
+            'expected_customer_id':first['id'],'target_customer_id':second['id'],
+            'reason':'Corrected to the verified second fictional customer'})
+        self.assertEqual(moved.status_code,200)
+        self.assertEqual(moved.json()['customer_id'],second['id'])
+        first_inventory=self.client.get('/api/privacy-requests/'+request['id']+'/inventory',headers=self.admin).json()['inventory']
+        self.assertEqual(first_inventory['inspections'],[])
+        self.assertEqual(first_inventory['possible_unlinked_inspections'],[])
+        self.assertEqual(self.client.post(url,headers=self.admin,json={**review,
+            'expected_customer_id':second['id'],'target_customer_id':first['id'],
+            'reason':'Returned to first fictional customer after review'}).status_code,200)
+        self.assertEqual(len(self.client.get(history_url,headers=self.admin).json()),3)
+        order=self.client.post('/api/work-orders',headers=self.admin,json={
+            'title':'Confirmed visit','customer_id':first['id'],'job_id':job['id'],
+            'assigned_engineer_id':self.engineer_id}).json()
+        correction={**review,'expected_customer_id':first['id'],'target_customer_id':second['id'],
+                    'reason':'Fictional correction after another identity check'}
+        self.assertEqual(self.client.post(url,headers=self.admin,json=correction).status_code,409)
+        self.assertEqual(self.client.post(url,headers=self.admin,json={**correction,'target_customer_id':None}).status_code,409)
+        self.assertEqual(self.client.patch('/api/work-orders/'+order['id'],headers=self.admin,
+                                           json={**order,'customer_id':second['id']}).status_code,409)
+        with self.assertRaises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(text("UPDATE job_customer_link_events SET reason='tampered'"))
+        site=self.client.post('/api/sites',headers=self.admin,json={
+            'customer_id':second['id'],'name':'Other fictional site'}).json()
+        passport=self.client.post('/api/passports',headers=self.admin,json={
+            'site_id':site['id'],'label':'Other product','product':'Window'}).json()
+        self.assertEqual(self.client.post('/api/passports/'+passport['id']+'/inspections',
+                                          headers=self.engineer,json={'job_id':job['id']}).status_code,409)
+
     def passport(self):
         customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Passport customer'}).json()
         site=self.client.post('/api/sites',headers=self.admin,json={'customer_id':customer['id'],'name':'Site A','address':'Fictional site'}).json()

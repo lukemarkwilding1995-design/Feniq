@@ -125,13 +125,24 @@ def register(app, require_admin):
             Job.company_id == request.company_id, Job.id.in_(job_ids)
         ).order_by(Job.id)).all()
         # A name match is a review lead, never proof that the inspection belongs
-        # to this customer. Keep candidates out of the linked-record draft.
+        # to this customer. Exclude inspections already linked elsewhere.
+        structured_job_ids = set(db.scalars(select(Job.id).where(
+            Job.company_id == request.company_id, Job.customer_id.is_not(None)
+        )).all())
+        structured_job_ids.update(db.scalars(select(WorkOrder.job_id).where(
+            WorkOrder.company_id == request.company_id, WorkOrder.job_id.is_not(None),
+            WorkOrder.customer_id.is_not(None)
+        )).all())
+        structured_job_ids.update(db.scalars(select(PassportInspection.job_id).join(
+            ProductPassport, ProductPassport.id == PassportInspection.passport_id).where(
+            ProductPassport.company_id == request.company_id
+        )).all())
         customer_name = customer.name.strip().casefold()
         possible_unlinked = []
         if customer_name:
             possible_unlinked = [row for row in db.scalars(select(Job).where(
                 Job.company_id == request.company_id,
-                Job.id.not_in(job_ids),
+                Job.id.not_in(structured_job_ids),
             ).order_by(Job.id)).all() if row.customer.strip().casefold() == customer_name]
         review_job_ids = [row.id for row in jobs] + [row.id for row in possible_unlinked]
         photos = db.scalars(select(Photo).where(

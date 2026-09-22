@@ -12,12 +12,13 @@ class MigrationTests(unittest.TestCase):
         self.engine.dispose()
 
     def test_empty_database_and_repeat_upgrade(self):
-        self.assertEqual(upgrade(self.engine), '0012_job_customer_link')
-        self.assertEqual(upgrade(self.engine), '0012_job_customer_link')
+        self.assertEqual(upgrade(self.engine), '0013_customer_link_review')
+        self.assertEqual(upgrade(self.engine), '0013_customer_link_review')
         require_current(self.engine)
         with self.engine.connect() as connection:
-            self.assertEqual(connection.execute(text('SELECT count(*) FROM feniq_schema_revisions')).scalar(), 12)
+            self.assertEqual(connection.execute(text('SELECT count(*) FROM feniq_schema_revisions')).scalar(), 13)
             self.assertIn('customer_id', {column['name'] for column in inspect(connection).get_columns('jobs')})
+            self.assertTrue(inspect(connection).has_table('job_customer_link_events'))
 
     def test_legacy_database_preserves_existing_records(self):
         baseline = json.loads((DIRECTORY / '0001_baseline_sqlite.json').read_text())

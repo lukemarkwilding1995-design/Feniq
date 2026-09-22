@@ -14,7 +14,7 @@ from .db import Base, engine, get_db
 from . import outcomes, learning_reviews, learning_dataset
 from . import verification
 from sqlalchemy.exc import IntegrityError
-from .models import Company, User, Job, Photo, LearningRecord, Customer, WorkOrder, ApprovalRequest, Notification, AuditEvent
+from .models import Company, User, Job, JobCustomerLinkEvent, Photo, LearningRecord, Customer, WorkOrder, ApprovalRequest, Notification, AuditEvent
 from .security import hash_password, verify_password, create_token, current_user
 from .vision import analyse_image
 from .pdf_report import build_report
@@ -662,6 +662,67 @@ def one_job(job_id: str, user: User = Depends(user_dep), db: Session = Depends(g
     job=db.get(Job,job_id); check_job(job,user)
     return job_json(job,db)
 
+class CustomerLinkCorrection(BaseModel):
+    expected_customer_id: str | None
+    target_customer_id: str | None
+    identity_confirmed: bool
+    reason: str = Field(min_length=5, max_length=2000)
+
+@app.get("/api/jobs/{job_id}/customer-link-history")
+def customer_link_history(job_id: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    job=db.get(Job,job_id)
+    if not job or job.company_id!=admin.company_id: raise HTTPException(404,"Inspection not found")
+    rows=db.scalars(select(JobCustomerLinkEvent).where(
+        JobCustomerLinkEvent.company_id==admin.company_id,
+        JobCustomerLinkEvent.job_id==job.id,
+    ).order_by(JobCustomerLinkEvent.created_at,JobCustomerLinkEvent.id)).all()
+    return [{"id":row.id,"old_customer_id":row.old_customer_id,
+             "new_customer_id":row.new_customer_id,"actor_name":db.get(User,row.actor_id).name,
+             "reason":row.reason,"created_at":row.created_at} for row in rows]
+
+@app.post("/api/jobs/{job_id}/customer-link")
+def correct_customer_link(job_id: str, data: CustomerLinkCorrection,
+                          admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    job=db.get(Job,job_id)
+    if not job or job.company_id!=admin.company_id: raise HTTPException(404,"Inspection not found")
+    if not data.identity_confirmed: raise HTTPException(422,"Confirm the customer identity review")
+    reason=data.reason.strip()
+    if len(reason)<5: raise HTTPException(422,"Explain the customer link correction")
+    if job.customer_id!=data.expected_customer_id:
+        raise HTTPException(409,"Customer link changed; reload the inspection")
+    if data.target_customer_id==job.customer_id:
+        raise HTTPException(409,"Choose a different customer link")
+    if data.target_customer_id:
+        target=db.get(Customer,data.target_customer_id)
+        if not target or target.company_id!=admin.company_id:
+            raise HTTPException(404,"Customer not found")
+    from .passports import PassportInspection, ProductPassport, Site
+    order_customer_ids=set(db.scalars(select(WorkOrder.customer_id).where(
+        WorkOrder.company_id==admin.company_id,WorkOrder.job_id==job.id,
+        WorkOrder.customer_id.is_not(None))).all())
+    passport_customer_ids=set(db.scalars(select(Site.customer_id).join(
+        ProductPassport,ProductPassport.site_id==Site.id).join(
+        PassportInspection,PassportInspection.passport_id==ProductPassport.id).where(
+        Site.company_id==admin.company_id,ProductPassport.company_id==admin.company_id,
+        PassportInspection.job_id==job.id)).all())
+    linked_customer_ids=order_customer_ids | passport_customer_ids
+    if linked_customer_ids and (data.target_customer_id is None or
+                                any(identifier!=data.target_customer_id for identifier in linked_customer_ids)):
+        raise HTTPException(409,"Resolve conflicting work-order or Product Passport links first")
+    condition=Job.customer_id.is_(None) if data.expected_customer_id is None else Job.customer_id==data.expected_customer_id
+    changed=db.execute(update(Job).where(Job.id==job.id,Job.company_id==admin.company_id,
+                                         condition).values(customer_id=data.target_customer_id)
+                       .execution_options(synchronize_session=False))
+    if changed.rowcount!=1:
+        raise HTTPException(409,"Customer link changed; reload the inspection")
+    db.add(JobCustomerLinkEvent(id=str(uuid.uuid4()),company_id=admin.company_id,job_id=job.id,
+                                old_customer_id=data.expected_customer_id,
+                                new_customer_id=data.target_customer_id,actor_id=admin.id,reason=reason))
+    audit_log(db,admin.company_id,admin.id,"inspection.customer_link_corrected","job",job.id,
+              {"old_customer_id":data.expected_customer_id,"new_customer_id":data.target_customer_id})
+    db.commit();db.refresh(job)
+    return job_json(job,db)
+
 @app.patch("/api/jobs/{job_id}/approve")
 def approve(job_id: str, user: User = Depends(user_dep), db: Session = Depends(get_db)):
     job=db.get(Job,job_id); check_job(job,user)
@@ -679,7 +740,7 @@ def delete_job(job_id: str, user: User = Depends(user_dep), db: Session = Depend
     from .passports import PassportInspection
     from .cases import TechnicalCase
     from .citations import Citation
-    for model in (DiagnosticSnapshot,LearningRecord,WorkOrder,ApprovalRequest,PassportInspection,TechnicalCase,Citation):
+    for model in (DiagnosticSnapshot,LearningRecord,WorkOrder,ApprovalRequest,PassportInspection,TechnicalCase,Citation,JobCustomerLinkEvent):
         if db.scalar(select(model.id).where(model.job_id==job.id)):
             raise HTTPException(409,"This inspection has retained history or linked work. Deletion is blocked; archival is not yet available")
     photos=db.scalars(select(Photo).where(Photo.job_id==job.id)).all()
@@ -811,6 +872,15 @@ def validate_work_order(data,user,db):
             raise HTTPException(422,"The visit engineer must match the linked inspection engineer")
         if job.customer_id and job.customer_id!=data.customer_id:
             raise HTTPException(409,"Work order customer must match the linked inspection")
+        if data.customer_id:
+            from .passports import PassportInspection, ProductPassport, Site
+            passport_customers=db.scalars(select(Site.customer_id).join(
+                ProductPassport,ProductPassport.site_id==Site.id).join(
+                PassportInspection,PassportInspection.passport_id==ProductPassport.id).where(
+                Site.company_id==user.company_id,ProductPassport.company_id==user.company_id,
+                PassportInspection.job_id==job.id)).all()
+            if any(identifier!=data.customer_id for identifier in passport_customers):
+                raise HTTPException(409,"Work order customer conflicts with the linked Product Passport")
     if data.scheduled_for:
         from datetime import datetime
         try: datetime.fromisoformat(data.scheduled_for)

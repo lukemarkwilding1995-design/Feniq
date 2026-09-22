@@ -52,6 +52,17 @@ class Job(Base):
     citation_version: Mapped[int] = mapped_column(Integer, default=0)
     engineer = relationship("User")
 
+class JobCustomerLinkEvent(Base):
+    __tablename__ = "job_customer_link_events"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), index=True)
+    old_customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id"), nullable=True)
+    new_customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id"), nullable=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    reason: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
 class Photo(Base):
     __tablename__ = "photos"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

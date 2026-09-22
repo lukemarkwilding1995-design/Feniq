@@ -598,10 +598,16 @@ const pages = {
   },
   async report() {
     const j = activeJob;
-    const [snapshot, outcomes] = await Promise.all([
+    const [snapshot, outcomes, customers, linkHistory] = await Promise.all([
       api(`/api/jobs/${j.id}/diagnostic-snapshot`),
       api(`/api/jobs/${j.id}/outcome-history`),
+      user.role === "admin" ? api("/api/customers") : [],
+      user.role === "admin"
+        ? api(`/api/jobs/${j.id}/customer-link-history`)
+        : [],
     ]);
+    const customerName = (id) =>
+      customers.find((c) => c.id === id)?.name || id || "No direct link";
     return (
       head(
         "INSPECTION RECORD",
@@ -609,6 +615,9 @@ const pages = {
         j.customer,
         `<div class="actions"><button data-action="edit-job">Edit inspection</button><button class="primary" data-action="pdf">Download PDF ↓</button></div>`,
       ) +
+      (user.role === "admin"
+        ? `<section class="panel"><h3>Direct customer record link</h3><p>${esc(customerName(j.customer_id))}</p><p class="muted">A work order or Product Passport may link this inspection even when no direct link is set. The original customer / site text is separate; correcting this link does not change the diagnostic snapshot.</p><button data-customer-link-correction="${esc(j.id)}">Review or correct link</button>${linkHistory.length ? `<h4>Retained corrections</h4>${linkHistory.map((row) => `<div class="visit"><b>${esc(customerName(row.old_customer_id))} → ${esc(customerName(row.new_customer_id))}</b><small>${date(row.created_at)} · ${esc(row.actor_name)}</small><p>${esc(row.reason)}</p></div>`).join("")}` : ""}</section>`
+        : "") +
       snapshotPanel(snapshot) +
       outcomeSummary(outcomes) +
       (await citationPanel(j)) +
@@ -985,6 +994,16 @@ document.addEventListener("click", async (e) => {
     startInspection(b.dataset.customerName, null, b.dataset.customerInspect);
     return;
   }
+  if (b.dataset.customerLinkCorrection) {
+    await busy(b, async () => {
+      const customers = await api("/api/customers");
+      openModal(
+        "Review inspection customer link",
+        `<form id="customerLinkForm" data-id="${esc(b.dataset.customerLinkCorrection)}"><input type="hidden" name="expected_customer_id" value="${esc(activeJob.customer_id || "")}"><p>Current direct link: ${esc(customers.find((c) => c.id === activeJob.customer_id)?.name || "No direct link")}</p>${select("Confirmed customer record", "target_customer_id", customers, activeJob.customer_id, "No direct link")}${area("Reason and evidence for this correction", "reason", "", 'required minlength="5" maxlength="2000"')}<label class="check"><input type="checkbox" name="identity_confirmed" required> I checked the customer's identity and any linked work order or Product Passport.</label><p class="muted">This changes the direct record link and retains the correction. It does not rewrite the original diagnosis or change linked work orders and passports.</p><p class="error form-error" role="alert"></p><button class="primary">Retain customer link correction</button></form>`,
+      );
+    });
+    return;
+  }
   if (b.dataset.startOrder) {
     await busy(b, async () => {
       const orders = await api("/api/work-orders"),
@@ -1300,6 +1319,17 @@ document.addEventListener("submit", async (e) => {
         $("modal").close();
         await go("privacy");
         toast("Scope review retained for the current inventory");
+      }
+      if (form.id === "customerLinkForm") {
+        await send(`/api/jobs/${form.dataset.id}/customer-link`, {
+          expected_customer_id: data.expected_customer_id || null,
+          target_customer_id: data.target_customer_id || null,
+          identity_confirmed: form.elements.identity_confirmed.checked,
+          reason: data.reason,
+        });
+        $("modal").close();
+        await showReport(form.dataset.id);
+        toast("Customer link correction retained");
       }
       if (form.id === "photoForm") {
         const fd = new FormData(form);
