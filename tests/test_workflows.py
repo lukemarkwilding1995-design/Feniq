@@ -255,12 +255,31 @@ class WorkflowTests(unittest.TestCase):
         first_inventory=self.client.get('/api/privacy-requests/'+request['id']+'/inventory',headers=self.admin).json()['inventory']
         self.assertEqual(first_inventory['inspections'],[])
         self.assertEqual(first_inventory['possible_unlinked_inspections'],[])
+        self.assertEqual(len(first_inventory['historical_customer_link_leads']),2)
+        self.assertEqual({row['inspection_id'] for row in first_inventory['historical_customer_link_leads']},
+                         {job['id']})
+        self.assertNotIn('reason',json.dumps(first_inventory['historical_customer_link_leads']))
+        self.assertEqual(self.client.patch('/api/privacy-requests/'+request['id'],headers=self.admin,json={
+            'version':1,'status':'Investigating','note':'Reviewing historical link lead'}).status_code,200)
+        lead_scope=self.client.get('/api/privacy-requests/'+request['id']+'/inventory',headers=self.admin).json()
+        self.assertEqual(self.client.post('/api/privacy-requests/'+request['id']+'/scope-review',headers=self.admin,json={
+            'version':2,'inventory_sha256':lead_scope['inventory_sha256'],
+            'identity_checked':True,'linked_records_checked':True,'unlinked_records_reviewed':True,
+            'note':'Reviewed fictional former link as a separate lead'}).status_code,200)
+        draft=self.client.get('/api/privacy-requests/'+request['id']+'/access-preview',headers=self.admin).json()
+        self.assertEqual(draft['historical_customer_link_lead_count'],2)
+        self.assertEqual(draft['inspections'],[])
+        self.assertNotIn(job['id'],json.dumps(draft))
         second_context=self.client.get(context_url,headers=self.admin).json()
         self.assertEqual(self.client.post(url,headers=self.admin,json={**review,
             'expected_customer_id':second['id'],'target_customer_id':first['id'],
             'context_sha256':second_context['context_sha256'],
             'reason':'Returned to first fictional customer after review'}).status_code,200)
         self.assertEqual(len(self.client.get(history_url,headers=self.admin).json()),3)
+        returned_inventory=self.client.get('/api/privacy-requests/'+request['id']+'/inventory',headers=self.admin).json()['inventory']
+        self.assertEqual(returned_inventory['historical_customer_link_leads'],[])
+        self.assertEqual(returned_inventory['inspections'][0]['customer_link_events']['count'],3)
+        self.assertFalse(self.client.get('/api/privacy-requests/'+request['id'],headers=self.admin).json()['scope_ready'])
         before_order=self.client.get(context_url,headers=self.admin).json()
         order=self.client.post('/api/work-orders',headers=self.admin,json={
             'title':'Confirmed visit','customer_id':first['id'],'job_id':job['id'],

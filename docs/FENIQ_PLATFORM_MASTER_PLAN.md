@@ -213,3 +213,5 @@ Migration 0012 adds an explicit, nullable inspection-customer link. New inspecti
 Migration 0013 adds an immutable history for admin-reviewed customer-link corrections on inspections. Identity confirmation, a reason, tenant validation, stale-link protection and work-order/passport conflict checks gate changes. The original diagnosis snapshot remains intact. See `CUSTOMER_LINK_CORRECTION_CYCLE_2026-09-22.md`.
 
 The correction form now displays the explicit work-order and Product Passport links it asks the admin to review. Submission is bound to that displayed link context; a later change requires another review even if the direct inspection link is unchanged.
+
+Privacy request inventories now flag retained customer-link corrections that refer to a former customer when the inspection is no longer currently linked to them. These checksum-bound entries are manual-review leads; they do not enter the internal Access draft. See `HISTORICAL_CUSTOMER_LINK_SCOPE_CYCLE_2026-09-22.md`.

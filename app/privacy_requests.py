@@ -12,7 +12,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .audit import log
 from .db import Base, get_db
-from .models import Customer, Job, Photo, WorkOrder, now
+from .models import Customer, Job, JobCustomerLinkEvent, Photo, WorkOrder, now
 from .passports import Site, ProductPassport, PassportInspection, PassportEvent
 from .cases import TechnicalCase, CaseEvent
 from .outcomes import OutcomeRevision
@@ -124,6 +124,21 @@ def register(app, require_admin):
         jobs = db.scalars(select(Job).where(
             Job.company_id == request.company_id, Job.id.in_(job_ids)
         ).order_by(Job.id)).all()
+        link_events = db.scalars(select(JobCustomerLinkEvent).join(
+            Job, Job.id == JobCustomerLinkEvent.job_id
+        ).where(
+            JobCustomerLinkEvent.company_id == request.company_id,
+            Job.company_id == request.company_id,
+            or_(JobCustomerLinkEvent.job_id.in_(job_ids),
+                JobCustomerLinkEvent.old_customer_id == request.customer_id,
+                JobCustomerLinkEvent.new_customer_id == request.customer_id),
+        ).order_by(JobCustomerLinkEvent.id)).all()
+        historical_events = [row for row in link_events if row.job_id not in job_ids and
+                             request.customer_id in (row.old_customer_id, row.new_customer_id)]
+        historical_jobs = {row.id: row for row in db.scalars(select(Job).where(
+            Job.company_id == request.company_id,
+            Job.id.in_([event.job_id for event in historical_events]),
+        )).all()}
         # A name match is a review lead, never proof that the inspection belongs
         # to this customer. Exclude inspections already linked elsewhere.
         structured_job_ids = set(db.scalars(select(Job.id).where(
@@ -175,12 +190,13 @@ def register(app, require_admin):
         passport_history = grouped_digest(passport_events, "passport_id")
         outcome_history = grouped_digest(outcome_revisions, "job_id")
         case_history = grouped_digest(case_events, "case_id")
+        link_history = grouped_digest(link_events, "job_id")
         def history_digest(grouped, identifier):
             values = grouped.get(identifier, [])
             return {"count": len(values), "metadata_sha256": hashlib.sha256(json.dumps(values).encode()).hexdigest()}
 
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "customer": {"id": customer.id, "name": customer.name, "record_sha256": record_digest(customer)},
             "sites": [{"id": row.id, "name": row.name, "record_sha256": record_digest(row)} for row in sites],
             "passports": [{"id": row.id, "label": row.label, "record_sha256": record_digest(row),
@@ -189,6 +205,7 @@ def register(app, require_admin):
                              "record_sha256": record_digest(row)} for row in orders],
             "inspections": [{"id": row.id, "reference": row.reference,
                              "record_sha256": record_digest(row),
+                             "customer_link_events": history_digest(link_history, row.id),
                              "outcome_revisions": history_digest(outcome_history, row.id),
                              "photo_count": len(photo_groups[row.id]),
                              "photo_metadata_sha256": hashlib.sha256(json.dumps(photo_groups[row.id]).encode()).hexdigest()} for row in jobs],
@@ -198,9 +215,15 @@ def register(app, require_admin):
                                                "outcome_revisions": history_digest(outcome_history, row.id),
                                                "photo_count": len(photo_groups[row.id]),
                                                "photo_metadata_sha256": hashlib.sha256(json.dumps(photo_groups[row.id]).encode()).hexdigest()} for row in possible_unlinked],
+            "historical_customer_link_leads": [{
+                "event_id": row.id, "inspection_id": row.job_id,
+                "inspection_reference": historical_jobs[row.job_id].reference,
+                "event_record_sha256": record_digest(row),
+                "inspection_record_sha256": record_digest(historical_jobs[row.job_id]),
+            } for row in historical_events if row.job_id in historical_jobs],
             "technical_cases": [{"id": row.id, "title": row.title, "record_sha256": record_digest(row),
                                  "case_events": history_digest(case_history, row.id)} for row in cases],
-            "scope_note": "The main inventory uses explicit inspection-customer, site, passport and work-order links. Exact customer-name matches below are unverified leads, not linked records; other names and systems may be missed. Private library content and media bytes require manual review; photo metadata counts are not file integrity checks.",
+            "scope_note": "The main inventory uses current explicit inspection-customer, site, passport and work-order links. Exact customer-name matches and historical correction links below are manual-review leads, not current linked records; neither enters the Access draft. Other names and systems may be missed. Private library content and media bytes require manual review; photo metadata counts are not file integrity checks.",
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return {"inventory": payload, "inventory_sha256": hashlib.sha256(encoded.encode()).hexdigest()}
@@ -321,6 +344,7 @@ def register(app, require_admin):
             "draft_only": True,
             "review_note": "Internal draft of explicitly linked FenIQ records. Check identity, third-party content, unlinked records and media separately before any disclosure. This endpoint does not send or export data.",
             "possible_unlinked_inspection_count": len(items["possible_unlinked_inspections"]),
+            "historical_customer_link_lead_count": len(items["historical_customer_link_leads"]),
             "customer": selected(customer, ("id", "name", "contact_name", "email", "phone", "address")),
             "sites": [selected(row, ("id", "name", "address")) for row in sites],
             "passports": [selected(row, ("id", "site_id", "label", "product", "manufacturer", "system_name", "serial_number")) for row in passports],
