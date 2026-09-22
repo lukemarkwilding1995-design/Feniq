@@ -404,6 +404,50 @@ def save_learning(job_id: str, data: LearningIn, user: User = Depends(user_dep),
         db.rollback();raise HTTPException(409,"Outcome changed. Reopen the form before saving.")
     return {"ok":True,"record_id":record.id}
 
+
+class WithdrawLearningConsentIn(BaseModel):
+    expected_version: int = Field(ge=1)
+    expected_sha256: str = Field(min_length=64, max_length=64)
+    reason: str = Field(min_length=5, max_length=2000)
+
+
+@app.post('/api/jobs/{job_id}/learning/withdraw-consent')
+def withdraw_learning_consent(job_id: str, data: WithdrawLearningConsentIn,
+                              user: User = Depends(user_dep), db: Session = Depends(get_db)):
+    job = db.get(Job, job_id)
+    check_job(job, user)
+    if job.engineer_id != user.id and user.role != 'admin':
+        raise HTTPException(403, 'Only the assigned engineer or company admin can withdraw learning consent')
+    history = outcomes.history(db, job)
+    if not history:
+        raise HTTPException(409, 'No retained repair outcome has learning consent to withdraw')
+    latest = history[-1]
+    if (latest.version != data.expected_version or latest.sha256 != data.expected_sha256
+            or not learning_reviews.integrity_valid(latest)):
+        raise HTTPException(409, 'Outcome changed or failed integrity verification; reopen the inspection')
+    payload = json.loads(latest.payload_json)
+    if payload.get('anonymised_for_learning') is not True:
+        raise HTTPException(409, 'Learning consent is already withdrawn')
+    reason = data.reason.strip()
+    if len(reason) < 5:
+        raise HTTPException(422, 'Explain the withdrawal')
+    payload.update(anonymised_for_learning=False, change_reason=reason,
+                   origin='Learning consent withdrawal',
+                   governance='Learning use withdrawn; repair evidence retained for service history')
+    revision = outcomes.append(db, job, user.id, latest.version + 1, payload)
+    record = db.scalar(select(LearningRecord).where(
+        LearningRecord.job_id == job.id, LearningRecord.company_id == user.company_id))
+    if record:
+        record.anonymised_for_learning = False
+    audit_log(db, user.company_id, user.id, 'learning.consent_withdrawn', 'job', job.id,
+              {'previous_version': latest.version, 'new_version': revision.version})
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, 'Outcome changed; reopen the inspection')
+    return {'ok': True, 'outcome_version': revision.version}
+
 @app.get('/api/jobs/{job_id}/outcome-history')
 def outcome_history(job_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):
     job=db.get(Job,job_id);check_job(job,user)

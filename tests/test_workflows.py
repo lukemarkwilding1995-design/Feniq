@@ -229,8 +229,26 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('07123',stored)
         with self.assertRaises(IntegrityError):
             with engine.begin() as connection:connection.execute(text("UPDATE learning_dataset_decisions SET reason='changed'"))
-        outcome.update(expected_version=1,change_reason='Customer withdrew consent',anonymised_for_learning=False)
-        self.assertEqual(self.client.post(base+'/learning',headers=self.engineer,json=outcome).status_code,200)
+        before=self.client.get(base+'/outcome-history',headers=self.engineer).json()[-1]
+        withdrawal={'expected_version':before['version'],'expected_sha256':before['sha256'],
+                    'reason':'Customer withdrew research consent'}
+        withdraw=base+'/learning/withdraw-consent'
+        self.assertEqual(self.client.post(withdraw,headers=outsider_auth,json=withdrawal).status_code,403)
+        another=self.client.post('/api/join-company',json={'invite_code':self.invite,'name':'Unassigned Engineer','email':'unassigned@example.com','password':'strong-password'}).json()
+        another_auth={'Authorization':'Bearer '+another['token']}
+        self.assertEqual(self.client.post(withdraw,headers=another_auth,json=withdrawal).status_code,403)
+        self.assertEqual(self.client.post(withdraw,headers=self.engineer,json={**withdrawal,'expected_sha256':'0'*64}).status_code,409)
+        self.assertEqual(self.client.post(withdraw,headers=self.engineer,json={**withdrawal,'reason':'   '}).status_code,422)
+        self.assertEqual(self.client.post(withdraw,headers=self.engineer,json=withdrawal).status_code,200)
+        after=self.client.get(base+'/outcome-history',headers=self.engineer).json()
+        self.assertEqual(after[-2],before)
+        self.assertEqual(after[-1]['version'],before['version']+1)
+        self.assertFalse(after[-1]['payload']['anonymised_for_learning'])
+        self.assertEqual(after[-1]['payload']['snapshot_sha256'],before['payload']['snapshot_sha256'])
+        self.assertEqual(after[-1]['payload']['actual_repair'],before['payload']['actual_repair'])
+        self.assertEqual(after[-1]['payload']['origin'],'Learning consent withdrawal')
+        self.assertEqual(self.client.post(withdraw,headers=self.engineer,json=withdrawal).status_code,409)
+        self.assertFalse(self.client.get(base+'/learning',headers=self.engineer).json()['anonymised_for_learning'])
         self.assertEqual(self.client.get(candidates,headers=self.admin).json(),[])
         self.assertEqual(self.client.get('/api/learning/internal-dataset',headers=self.admin).json()['count'],0)
         self.assertEqual(self.client.get('/api/learning/dataset-history',headers=self.admin).json()['items'][0]['status'],'Consent withdrawn')

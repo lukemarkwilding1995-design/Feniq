@@ -606,7 +606,7 @@ const pages = {
         )
         .join(
           "",
-        )}<div class="notice">${j.confidence}% rule score. Decision support, not a calibrated probability or a manufacturer specification.</div><h3>Photo evidence</h3><div id="reportPhotos" class="photos">${j.photos.length ? "Loading photos…" : "No photos attached yet."}</div><form id="photoForm" style="margin-top:20px"><div class="form-grid">${select("Evidence phase", "phase", ["before", "after"])}<label>JPG, PNG or WEBP<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label></div><button>Add photo</button></form>${config.vision_enabled && j.photos.length ? '<button data-action="analyse">Analyse first photo</button>' : ""}</article><div class="actions"><button class="primary" data-action="learning-form">Record repair outcome</button><button data-action="approval-form">Request commercial approval</button>${!j.approved_by_engineer ? '<button data-action="approve-job">Mark engineer reviewed</button>' : ""}</div>`
+        )}<div class="notice">${j.confidence}% rule score. Decision support, not a calibrated probability or a manufacturer specification.</div><h3>Photo evidence</h3><div id="reportPhotos" class="photos">${j.photos.length ? "Loading photos…" : "No photos attached yet."}</div><form id="photoForm" style="margin-top:20px"><div class="form-grid">${select("Evidence phase", "phase", ["before", "after"])}<label>JPG, PNG or WEBP<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label></div><button>Add photo</button></form>${config.vision_enabled && j.photos.length ? '<button data-action="analyse">Analyse first photo</button>' : ""}</article><div class="actions"><button class="primary" data-action="learning-form">Record repair outcome</button>${outcomes.at(-1)?.payload.anonymised_for_learning === true ? `<button data-withdraw-consent="${esc(j.id)}" data-outcome-version="${outcomes.at(-1).version}" data-outcome-sha="${esc(outcomes.at(-1).sha256)}">Withdraw learning consent</button>` : ""}<button data-action="approval-form">Request commercial approval</button>${!j.approved_by_engineer ? '<button data-action="approve-job">Mark engineer reviewed</button>' : ""}</div>`
     );
   },
 };
@@ -618,7 +618,7 @@ function outcomeSummary(rows) {
   const checks = p.verification_definition
     ? `<p><b>${esc(p.verification_definition.title)} revision ${p.verification_definition.revision}</b></p><ul>${p.verification_definition.checks.map((check) => `<li>${esc(check.label)}: ${esc(p.verification_answers[check.key])}</li>`).join("")}</ul>`
     : '<p class="muted">No structured verification definition was retained for this legacy revision.</p>';
-  return `<section class="panel" style="margin-bottom:20px"><div class="panel-head"><h3>Latest repair outcome</h3>${badge(p.resolved ? "Reported resolved" : "Not resolved")}</div><p><b>Actual repair:</b> ${esc(p.actual_repair)}</p><p><b>Final checks:</b> ${esc(p.verification_checks || "Not recorded in legacy feedback")}</p>${checks}<p><b>Confirmed diagnosis:</b> ${esc(p.confirmed_diagnosis)}</p><small>Retained revision ${row.version} of ${rows.length} · ${row.integrity_valid ? "Integrity checked" : "Integrity check failed"}. Earlier revisions remain available from Record repair outcome.</small></section>`;
+  return `<section class="panel" style="margin-bottom:20px"><div class="panel-head"><h3>Latest repair outcome</h3>${badge(p.resolved ? "Reported resolved" : "Not resolved")}</div><p><b>Actual repair:</b> ${esc(p.actual_repair)}</p><p><b>Final checks:</b> ${esc(p.verification_checks || "Not recorded in legacy feedback")}</p>${checks}<p><b>Confirmed diagnosis:</b> ${esc(p.confirmed_diagnosis)}</p><p><b>Learning consent:</b> ${p.anonymised_for_learning === true ? "Eligible for review" : "Not opted in"}</p>${p.origin === "Learning consent withdrawal" ? `<p class="notice">Learning consent withdrawn: ${esc(p.change_reason)}</p>` : ""}<small>Retained revision ${row.version} of ${rows.length} · ${row.integrity_valid ? "Integrity checked" : "Integrity check failed"}. Earlier revisions remain available from Record repair outcome.</small></section>`;
 }
 function snapshotPanel(snapshot) {
   if (!snapshot)
@@ -837,6 +837,13 @@ document.addEventListener("click", async (e) => {
   if (b.dataset.demo) {
     await busy(b, async () =>
       enter(await api("/api/demo?role=" + b.dataset.demo, { method: "POST" })),
+    );
+    return;
+  }
+  if (b.dataset.withdrawConsent) {
+    openModal(
+      "Withdraw learning consent",
+      `<form id="withdrawConsentForm" data-id="${esc(b.dataset.withdrawConsent)}"><input type="hidden" name="expected_version" value="${esc(b.dataset.outcomeVersion)}"><input type="hidden" name="expected_sha256" value="${esc(b.dataset.outcomeSha)}"><p>This creates a retained withdrawal revision and immediately removes the current outcome from local research eligibility. The repair record remains in service history.</p>${area("Reason for withdrawal", "reason", "", 'required minlength="5" maxlength="2000"')}<p class="error form-error" role="alert"></p><button class="primary">Withdraw consent</button></form>`,
     );
     return;
   }
@@ -1156,6 +1163,15 @@ document.addEventListener("submit", async (e) => {
         await send("/api/learning/dataset-decisions", data);
         await go("learning");
         toast("Dataset decision retained");
+      }
+      if (form.id === "withdrawConsentForm") {
+        await send(`/api/jobs/${form.dataset.id}/learning/withdraw-consent`, {
+          ...data,
+          expected_version: Number(data.expected_version),
+        });
+        $("modal").close();
+        await showReport(form.dataset.id);
+        toast("Learning consent withdrawn; service history retained");
       }
       if (form.id === "grantAdminForm") {
         await send(
