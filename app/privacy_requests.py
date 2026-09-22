@@ -120,10 +120,20 @@ def register(app, require_admin):
         jobs = db.scalars(select(Job).where(
             Job.company_id == request.company_id, Job.id.in_(job_ids)
         ).order_by(Job.id)).all()
+        # A name match is a review lead, never proof that the inspection belongs
+        # to this customer. Keep candidates out of the linked-record draft.
+        customer_name = customer.name.strip().casefold()
+        possible_unlinked = []
+        if customer_name:
+            possible_unlinked = [row for row in db.scalars(select(Job).where(
+                Job.company_id == request.company_id,
+                Job.id.not_in(job_ids),
+            ).order_by(Job.id)).all() if row.customer.strip().casefold() == customer_name]
+        review_job_ids = [row.id for row in jobs] + [row.id for row in possible_unlinked]
         photos = db.scalars(select(Photo).where(
-            Photo.company_id == request.company_id, Photo.job_id.in_(job_ids)
+            Photo.company_id == request.company_id, Photo.job_id.in_(review_job_ids)
         ).order_by(Photo.id)).all()
-        photo_groups = {row.id: [] for row in jobs}
+        photo_groups = {identifier: [] for identifier in review_job_ids}
         for photo in photos:
             if photo.job_id in photo_groups:
                 photo_groups[photo.job_id].append(record_digest(photo))
@@ -136,7 +146,7 @@ def register(app, require_admin):
         ).order_by(PassportEvent.id)).all()
         outcome_revisions = db.scalars(select(OutcomeRevision).where(
             OutcomeRevision.company_id == request.company_id,
-            OutcomeRevision.job_id.in_(job_ids),
+            OutcomeRevision.job_id.in_(review_job_ids),
         ).order_by(OutcomeRevision.id)).all()
         case_events = db.scalars(select(CaseEvent).where(
             CaseEvent.case_id.in_([row.id for row in cases])
@@ -167,9 +177,15 @@ def register(app, require_admin):
                              "outcome_revisions": history_digest(outcome_history, row.id),
                              "photo_count": len(photo_groups[row.id]),
                              "photo_metadata_sha256": hashlib.sha256(json.dumps(photo_groups[row.id]).encode()).hexdigest()} for row in jobs],
+            "possible_unlinked_inspections": [{"id": row.id, "reference": row.reference,
+                                               "customer_text": row.customer,
+                                               "record_sha256": record_digest(row),
+                                               "outcome_revisions": history_digest(outcome_history, row.id),
+                                               "photo_count": len(photo_groups[row.id]),
+                                               "photo_metadata_sha256": hashlib.sha256(json.dumps(photo_groups[row.id]).encode()).hexdigest()} for row in possible_unlinked],
             "technical_cases": [{"id": row.id, "title": row.title, "record_sha256": record_digest(row),
                                  "case_events": history_digest(case_history, row.id)} for row in cases],
-            "scope_note": "Explicit customer, site, passport and work-order links only. Legacy free-text inspections, other systems, private library content and media bytes require manual review; photo metadata counts are not file integrity checks.",
+            "scope_note": "The main inventory uses explicit customer, site, passport and work-order links. Exact customer-name matches below are unverified leads, not linked records; other names and systems may be missed. Private library content and media bytes require manual review; photo metadata counts are not file integrity checks.",
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return {"inventory": payload, "inventory_sha256": hashlib.sha256(encoded.encode()).hexdigest()}
@@ -289,6 +305,7 @@ def register(app, require_admin):
             "inventory_sha256": scope["inventory_sha256"],
             "draft_only": True,
             "review_note": "Internal draft of explicitly linked FenIQ records. Check identity, third-party content, unlinked records and media separately before any disclosure. This endpoint does not send or export data.",
+            "possible_unlinked_inspection_count": len(items["possible_unlinked_inspections"]),
             "customer": selected(customer, ("id", "name", "contact_name", "email", "phone", "address")),
             "sites": [selected(row, ("id", "name", "address")) for row in sites],
             "passports": [selected(row, ("id", "site_id", "label", "product", "manufacturer", "system_name", "serial_number")) for row in passports],

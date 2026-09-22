@@ -122,6 +122,8 @@ class WorkflowTests(unittest.TestCase):
         outsider_auth={'Authorization':'Bearer '+outsider['token']}
         outsider_customer=self.client.post('/api/customers',headers=outsider_auth,json={
             'name':'Other private customer','email':'outside@example.test'}).json()
+        outsider_job=self.client.post('/api/jobs',headers=outsider_auth,json={
+            'customer':'Fictional access customer','fault':'Other tenant inspection','product':'Window'}).json()
         request=self.client.post('/api/privacy-requests',headers=self.admin,json={
             'customer_id':customer['id'],'kind':'Access','summary':'Fictional request for linked records'}).json()
         url='/api/privacy-requests/'+request['id']
@@ -136,7 +138,12 @@ class WorkflowTests(unittest.TestCase):
             'customer_id':customer['id'],'name':'Access site','address':'Fictional address'}).json()
         linked=self.client.post('/api/work-orders',headers=self.admin,json={
             'customer_id':customer['id'],'title':'Access-linked visit'}).json()
+        unlinked=self.job(customer='  FICTIONAL ACCESS CUSTOMER  ',reference='UNLINKED-LEAD').json()
         inventory=self.client.get(url+'/inventory',headers=self.admin).json()
+        self.assertEqual(inventory['inventory']['inspections'],[])
+        self.assertEqual([row['id'] for row in inventory['inventory']['possible_unlinked_inspections']],
+                         [unlinked['id']])
+        self.assertNotIn(outsider_job['id'],json.dumps(inventory))
         review={'version':2,'inventory_sha256':inventory['inventory_sha256'],
                 'identity_checked':True,'linked_records_checked':True,'unlinked_records_reviewed':True,
                 'note':'Fictional requester and unlinked records checked'}
@@ -149,8 +156,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(draft['customer']['email'],'access@example.test')
         self.assertEqual(draft['sites'][0]['id'],site['id'])
         self.assertEqual(draft['work_orders'][0]['id'],linked['id'])
+        self.assertEqual(draft['possible_unlinked_inspection_count'],1)
+        self.assertNotIn(unlinked['id'],json.dumps(draft))
         self.assertNotIn(outsider_customer['id'],json.dumps(draft))
         self.assertEqual(self.client.get(url,headers=self.admin).json()['request']['version'],3)
+        new_lead=self.job(customer='Fictional access customer',reference='NEW-LEAD').json()
+        self.assertIn(new_lead['id'],json.dumps(self.client.get(url+'/inventory',headers=self.admin).json()))
+        self.assertFalse(self.client.get(url,headers=self.admin).json()['scope_ready'])
+        self.assertEqual(self.client.get(draft_url,headers=self.admin).status_code,409)
         self.assertEqual(self.client.post('/api/work-orders',headers=self.admin,json={
             'customer_id':customer['id'],'title':'New linked visit'}).status_code,200)
         self.assertEqual(self.client.get(draft_url,headers=self.admin).status_code,409)
