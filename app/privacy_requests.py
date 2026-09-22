@@ -12,9 +12,10 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .audit import log
 from .db import Base, get_db
-from .models import Customer, Job, JobCustomerLinkEvent, Photo, WorkOrder, now
+from .models import Customer, DiagnosticSnapshot, Job, JobCustomerLinkEvent, Photo, WorkOrder, now
 from .passports import Site, ProductPassport, PassportInspection, PassportEvent
 from .cases import TechnicalCase, CaseEvent
+from .citations import Citation
 from .outcomes import OutcomeRevision
 
 
@@ -178,6 +179,14 @@ def register(app, require_admin):
             OutcomeRevision.company_id == request.company_id,
             OutcomeRevision.job_id.in_(review_job_ids),
         ).order_by(OutcomeRevision.id)).all()
+        diagnostic_snapshots = db.scalars(select(DiagnosticSnapshot).where(
+            DiagnosticSnapshot.company_id == request.company_id,
+            DiagnosticSnapshot.job_id.in_(review_job_ids),
+        ).order_by(DiagnosticSnapshot.id)).all()
+        citations = db.scalars(select(Citation).where(
+            Citation.company_id == request.company_id,
+            Citation.job_id.in_(review_job_ids),
+        ).order_by(Citation.id)).all()
         case_events = db.scalars(select(CaseEvent).where(
             CaseEvent.case_id.in_([row.id for row in cases])
         ).order_by(CaseEvent.id)).all()
@@ -189,6 +198,8 @@ def register(app, require_admin):
 
         passport_history = grouped_digest(passport_events, "passport_id")
         outcome_history = grouped_digest(outcome_revisions, "job_id")
+        snapshot_history = grouped_digest(diagnostic_snapshots, "job_id")
+        citation_history = grouped_digest(citations, "job_id")
         case_history = grouped_digest(case_events, "case_id")
         link_history = grouped_digest(link_events, "job_id")
         def history_digest(grouped, identifier):
@@ -196,7 +207,7 @@ def register(app, require_admin):
             return {"count": len(values), "metadata_sha256": hashlib.sha256(json.dumps(values).encode()).hexdigest()}
 
         payload = {
-            "schema_version": 2,
+            "schema_version": 3,
             "customer": {"id": customer.id, "name": customer.name, "record_sha256": record_digest(customer)},
             "sites": [{"id": row.id, "name": row.name, "record_sha256": record_digest(row)} for row in sites],
             "passports": [{"id": row.id, "label": row.label, "record_sha256": record_digest(row),
@@ -207,12 +218,16 @@ def register(app, require_admin):
                              "record_sha256": record_digest(row),
                              "customer_link_events": history_digest(link_history, row.id),
                              "outcome_revisions": history_digest(outcome_history, row.id),
+                             "diagnostic_snapshots": history_digest(snapshot_history, row.id),
+                             "reviewed_citations": history_digest(citation_history, row.id),
                              "photo_count": len(photo_groups[row.id]),
                              "photo_metadata_sha256": hashlib.sha256(json.dumps(photo_groups[row.id]).encode()).hexdigest()} for row in jobs],
             "possible_unlinked_inspections": [{"id": row.id, "reference": row.reference,
                                                "customer_text": row.customer,
                                                "record_sha256": record_digest(row),
                                                "outcome_revisions": history_digest(outcome_history, row.id),
+                                               "diagnostic_snapshots": history_digest(snapshot_history, row.id),
+                                               "reviewed_citations": history_digest(citation_history, row.id),
                                                "photo_count": len(photo_groups[row.id]),
                                                "photo_metadata_sha256": hashlib.sha256(json.dumps(photo_groups[row.id]).encode()).hexdigest()} for row in possible_unlinked],
             "historical_customer_link_leads": [{
@@ -223,7 +238,7 @@ def register(app, require_admin):
             } for row in historical_events if row.job_id in historical_jobs],
             "technical_cases": [{"id": row.id, "title": row.title, "record_sha256": record_digest(row),
                                  "case_events": history_digest(case_history, row.id)} for row in cases],
-            "scope_note": "The main inventory uses current explicit inspection-customer, site, passport and work-order links. Exact customer-name matches and historical correction links below are manual-review leads, not current linked records; neither enters the Access draft. Other names and systems may be missed. Private library content and media bytes require manual review; photo metadata counts are not file integrity checks.",
+            "scope_note": "The main inventory uses current explicit inspection-customer, site, passport and work-order links. Inspection counts and checksums include retained diagnostic snapshots and reviewed citations, but their contents require separate manual review and are excluded from the Access draft. Exact customer-name matches and historical correction links below are manual-review leads, not current linked records. Other names and systems may be missed. Private library content and media bytes require manual review; photo metadata counts are not file integrity checks.",
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return {"inventory": payload, "inventory_sha256": hashlib.sha256(encoded.encode()).hexdigest()}

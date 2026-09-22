@@ -347,7 +347,7 @@ function privacyInventoryGroup(
   label,
   empty = "No explicit links recorded.",
 ) {
-  return `<div class="visit"><b>${esc(title)} · ${rows.length}</b>${rows.length ? `<ul>${rows.map((row) => `<li>${esc(row[label] || row.id)}${row.photo_count ? ` · ${row.photo_count} photos` : ""}</li>`).join("")}</ul>` : `<p class="muted">${esc(empty)}</p>`}</div>`;
+  return `<div class="visit"><b>${esc(title)} · ${rows.length}</b>${rows.length ? `<ul>${rows.map((row) => `<li>${esc(row[label] || row.id)}${row.photo_count ? ` · ${row.photo_count} photos` : ""}${row.diagnostic_snapshots ? ` · ${row.diagnostic_snapshots.count} diagnostic snapshots` : ""}${row.reviewed_citations ? ` · ${row.reviewed_citations.count} reviewed citations` : ""}</li>`).join("")}</ul>` : `<p class="muted">${esc(empty)}</p>`}</div>`;
 }
 
 const pages = {

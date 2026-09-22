@@ -215,3 +215,5 @@ Migration 0013 adds an immutable history for admin-reviewed customer-link correc
 The correction form now displays the explicit work-order and Product Passport links it asks the admin to review. Submission is bound to that displayed link context; a later change requires another review even if the direct inspection link is unchanged.
 
 Privacy request inventories now flag retained customer-link corrections that refer to a former customer when the inspection is no longer currently linked to them. These checksum-bound entries are manual-review leads; they do not enter the internal Access draft. See `HISTORICAL_CUSTOMER_LINK_SCOPE_CYCLE_2026-09-22.md`.
+
+The inventory also counts and checksums immutable diagnostic snapshots and reviewed citations on linked inspections and name-match leads. Their contents require separate manual review and remain outside the Access draft. See `INSPECTION_EVIDENCE_SCOPE_CYCLE_2026-09-22.md`.

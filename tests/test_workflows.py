@@ -549,7 +549,15 @@ class WorkflowTests(unittest.TestCase):
         (library/'manifest.json').write_text(json.dumps({'documents':[{'id':'citation-fixture','title':'Fictional citation guide','manufacturer':'Test only','revision':'1','category':'Test','filename':'fixture.pdf','sha256':digest,'company_ids':[1],'page_count':2,'pages':[]}]}),encoding='utf-8')
         os.environ['FENIQ_DOCUMENT_ROOT']=str(library)
         try:
-            job=self.job(approved_by_engineer=True).json();url='/api/jobs/'+job['id']+'/citations'
+            customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Fictional citation customer'}).json()
+            job=self.job(approved_by_engineer=True,customer_id=customer['id']).json();url='/api/jobs/'+job['id']+'/citations'
+            privacy=self.client.post('/api/privacy-requests',headers=self.admin,json={
+                'customer_id':customer['id'],'kind':'Access','summary':'Review fictional source-linked inspection'}).json()
+            inventory_url='/api/privacy-requests/'+privacy['id']+'/inventory'
+            before_scope=self.client.get(inventory_url,headers=self.admin).json()
+            before_inspection=before_scope['inventory']['inspections'][0]
+            self.assertEqual(before_inspection['diagnostic_snapshots']['count'],1)
+            self.assertEqual(before_inspection['reviewed_citations']['count'],0)
             source='/api/documents/citation-fixture'
             self.assertEqual(self.client.get(source+'/reviewed-pages/1',headers=self.engineer).status_code,409)
             review={'document_sha256':digest,'status':'Approved for reference','title':'Fictional citation guide','manufacturer':'Test only','revision':'1','applicability':'Fictional testing only','page_start':1,'page_end':1,'note':'Synthetic review','attested':True}
@@ -575,6 +583,21 @@ class WorkflowTests(unittest.TestCase):
             data['excerpt']=quote
             approval=self.client.post('/api/approvals',headers=self.engineer,json={'job_id':job['id'],'approval_type':'Test','description':'Pending scope'}).json()
             self.assertEqual(self.client.post(url,headers=self.engineer,json=data).status_code,200)
+            after_scope=self.client.get(inventory_url,headers=self.admin).json()
+            self.assertNotEqual(before_scope['inventory_sha256'],after_scope['inventory_sha256'])
+            self.assertEqual(after_scope['inventory']['inspections'][0]['reviewed_citations']['count'],1)
+            self.assertNotIn(quote,json.dumps(after_scope))
+            request_url='/api/privacy-requests/'+privacy['id']
+            self.assertEqual(self.client.patch(request_url,headers=self.admin,json={
+                'version':1,'status':'Investigating','note':'Reviewing fictional source scope'}).status_code,200)
+            self.assertEqual(self.client.post(request_url+'/scope-review',headers=self.admin,json={
+                'version':2,'inventory_sha256':after_scope['inventory_sha256'],
+                'identity_checked':True,'linked_records_checked':True,'unlinked_records_reviewed':True,
+                'note':'Checked fictional source and identity separately'}).status_code,200)
+            draft=self.client.get(request_url+'/access-preview',headers=self.admin).json()
+            self.assertNotIn('diagnostic_snapshots',draft)
+            self.assertNotIn('reviewed_citations',draft)
+            self.assertNotIn(quote,json.dumps(draft))
             self.assertTrue(self.client.post(url,headers=self.engineer,json=data).json()['already_attached'])
             self.assertFalse(self.client.get('/api/jobs/'+job['id'],headers=self.engineer).json()['approved_by_engineer'])
             self.client.patch('/api/jobs/'+job['id']+'/approve',headers=self.engineer)
