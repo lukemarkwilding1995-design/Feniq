@@ -1,0 +1,10 @@
+[
+  "CREATE TABLE privacy_requests (id VARCHAR(64) NOT NULL PRIMARY KEY, company_id INTEGER NOT NULL REFERENCES companies(id), customer_id VARCHAR(64) NOT NULL REFERENCES customers(id), kind VARCHAR(30) NOT NULL, summary TEXT NOT NULL, status VARCHAR(30) NOT NULL, resolution TEXT NOT NULL, version INTEGER NOT NULL, created_by_id INTEGER NOT NULL REFERENCES users(id), created_at DATETIME NOT NULL)",
+  "CREATE INDEX ix_privacy_requests_company_id ON privacy_requests (company_id)",
+  "CREATE INDEX ix_privacy_requests_customer_id ON privacy_requests (customer_id)",
+  "CREATE INDEX ix_privacy_requests_status ON privacy_requests (status)",
+  "CREATE TABLE privacy_request_events (id VARCHAR(64) NOT NULL PRIMARY KEY, request_id VARCHAR(64) NOT NULL REFERENCES privacy_requests(id), actor_id INTEGER NOT NULL REFERENCES users(id), status VARCHAR(30) NOT NULL, note TEXT NOT NULL, created_at DATETIME NOT NULL)",
+  "CREATE INDEX ix_privacy_request_events_request_id ON privacy_request_events (request_id)",
+  "CREATE TRIGGER privacy_request_events_no_update BEFORE UPDATE ON privacy_request_events BEGIN SELECT RAISE(ABORT, 'Request history is immutable'); END",
+  "CREATE TRIGGER privacy_request_events_no_delete BEFORE DELETE ON privacy_request_events BEGIN SELECT RAISE(ABORT, 'Request history is immutable'); END"
+]

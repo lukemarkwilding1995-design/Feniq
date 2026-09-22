@@ -222,6 +222,7 @@ async function enter(data) {
     "hidden",
     !user.company.startsWith("FenIQ Demo"),
   );
+  $("privacyNav").classList.toggle("hidden", user.role !== "admin");
   await go("dashboard");
 }
 $("authForm").onsubmit = async (e) => {
@@ -542,6 +543,20 @@ const pages = {
         : "")
     );
   },
+  async privacy() {
+    if (user.role !== "admin") throw Error("Company admin access required.");
+    const requests = await api("/api/privacy-requests");
+    return (
+      head(
+        "COMPANY GOVERNANCE",
+        "Privacy requests",
+        "Track a customer request and retain the decision history.",
+        '<button class="primary" data-privacy-new>+ Record request</button>',
+      ) +
+      '<div class="notice">This register tracks review decisions. Closing a request does not disclose, correct or delete customer records automatically.</div>' +
+      `<div class="cards">${requests.length ? requests.map((request) => `<article class="panel"><div class="actions">${badge(request.status)}${badge(request.kind)}</div><h3>${esc(request.customer_name)}</h3><p>${esc(request.summary)}</p><p class="muted">Opened ${date(request.created_at)} · Revision ${request.version}</p>${request.resolution ? `<p class="notice">Decision: ${esc(request.resolution)}</p>` : ""}<button data-privacy-open="${esc(request.id)}">Review history and status</button></article>`).join("") : empty("No requests recorded", "Record a customer request here so company admins can review it and retain the decision.")}</div>`
+    );
+  },
   async notifications() {
     const ns = await api("/api/notifications");
     return (
@@ -845,6 +860,37 @@ document.addEventListener("click", async (e) => {
       "Withdraw learning consent",
       `<form id="withdrawConsentForm" data-id="${esc(b.dataset.withdrawConsent)}"><input type="hidden" name="expected_version" value="${esc(b.dataset.outcomeVersion)}"><input type="hidden" name="expected_sha256" value="${esc(b.dataset.outcomeSha)}"><p>This creates a retained withdrawal revision and immediately removes the current outcome from local research eligibility. The repair record remains in service history.</p>${area("Reason for withdrawal", "reason", "", 'required minlength="5" maxlength="2000"')}<p class="error form-error" role="alert"></p><button class="primary">Withdraw consent</button></form>`,
     );
+    return;
+  }
+  if (b.hasAttribute("data-privacy-new")) {
+    await busy(b, async () => {
+      const customers = await api("/api/customers");
+      if (!customers.length)
+        throw Error("Add a customer before recording a request.");
+      openModal(
+        "Record customer request",
+        `<form id="privacyCreateForm">${select("Customer", "customer_id", customers, "", "Select customer…")}${select("Request type", "kind", ["Access", "Correction", "Deletion"])}${area("What was requested?", "summary", "", 'required minlength="5" maxlength="2000"')}<p class="muted">Record the request without making a decision yet. Keep unnecessary personal details out of the summary.</p><p class="error form-error" role="alert"></p><button class="primary">Record request</button></form>`,
+      );
+    });
+    return;
+  }
+  if (b.dataset.privacyOpen) {
+    await busy(b, async () => {
+      const detail = await api(
+        `/api/privacy-requests/${b.dataset.privacyOpen}`,
+      );
+      const request = detail.request;
+      const next = {
+        Open: ["Investigating"],
+        Investigating: ["Awaiting Decision", "Closed"],
+        "Awaiting Decision": ["Investigating", "Closed"],
+        Closed: ["Investigating"],
+      }[request.status];
+      openModal(
+        `${request.kind} request · ${request.customer_name}`,
+        `<p>${esc(request.summary)}</p><div class="actions">${badge(request.status)}${badge("Revision " + request.version)}</div>${request.resolution ? `<p class="notice">Decision: ${esc(request.resolution)}</p>` : ""}<h3>Retained history</h3>${detail.events.map((event) => `<div class="visit"><b>${esc(event.status)}</b><small>${date(event.created_at)} · ${time(event.created_at)}</small><p>${esc(event.note)}</p></div>`).join("")}<form id="privacyChangeForm" data-id="${esc(request.id)}"><input type="hidden" name="version" value="${request.version}">${select("Next status", "status", next)}${area("Reason for change", "note", "", 'required minlength="5" maxlength="2000"')}${area("Decision when closing", "resolution", "", 'maxlength="2000"')}<p class="muted">A decision is required when closing. Changing status does not perform access, correction or deletion.</p><p class="error form-error" role="alert"></p><button class="primary">Save status</button></form>`,
+      );
+    });
     return;
   }
   if (b.dataset.grantAdmin) {
@@ -1181,6 +1227,25 @@ document.addEventListener("submit", async (e) => {
         $("modal").close();
         await go("company");
         toast("Company admin access granted");
+      }
+      if (form.id === "privacyCreateForm") {
+        await send("/api/privacy-requests", data);
+        $("modal").close();
+        await go("privacy");
+        toast("Request recorded");
+      }
+      if (form.id === "privacyChangeForm") {
+        await send(
+          `/api/privacy-requests/${form.dataset.id}`,
+          {
+            ...data,
+            version: Number(data.version),
+          },
+          "PATCH",
+        );
+        $("modal").close();
+        await go("privacy");
+        toast("Request status retained");
       }
       if (form.id === "photoForm") {
         const fd = new FormData(form);

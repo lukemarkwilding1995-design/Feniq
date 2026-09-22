@@ -51,6 +51,40 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/commercial/dashboard',headers=self.engineer).status_code,403)
         self.assertIn('learning.dataset',self.client.get('/api/permissions',headers=self.admin).json()['permissions'])
         self.assertNotIn('learning.dataset',self.client.get('/api/permissions',headers=self.engineer).json()['permissions'])
+        self.assertIn('privacy.manage',self.client.get('/api/permissions',headers=self.admin).json()['permissions'])
+        self.assertNotIn('privacy.manage',self.client.get('/api/permissions',headers=self.engineer).json()['permissions'])
+
+    def test_privacy_request_register_is_scoped_and_records_decisions_only(self):
+        customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Fictional customer'}).json()
+        outsider=self.client.post('/api/register-company',json={'company_name':'Request outsider','admin_name':'Other','email':'requests-outside@example.com','password':'strong-password'}).json()
+        outsider_auth={'Authorization':'Bearer '+outsider['token']}
+        url='/api/privacy-requests'
+        request={'customer_id':customer['id'],'kind':'Deletion','summary':'Fictional customer asked for review of stored records'}
+        self.assertEqual(self.client.get(url,headers=self.engineer).status_code,403)
+        self.assertEqual(self.client.post(url,headers=self.engineer,json=request).status_code,403)
+        self.assertEqual(self.client.post(url,headers=outsider_auth,json=request).status_code,404)
+        created=self.client.post(url,headers=self.admin,json=request)
+        self.assertEqual(created.status_code,200)
+        item=created.json();self.assertEqual(item['status'],'Open')
+        self.assertEqual(self.client.get(url,headers=outsider_auth).json(),[])
+        detail_url=url+'/'+item['id']
+        self.assertEqual(self.client.get(detail_url,headers=outsider_auth).status_code,404)
+        self.assertEqual(self.client.get(detail_url,headers=self.engineer).status_code,403)
+        self.assertEqual(len(self.client.get(detail_url,headers=self.admin).json()['events']),1)
+        self.assertEqual(self.client.patch(detail_url,headers=self.admin,json={'version':1,'status':'Closed','note':'Skip review','resolution':'Delete all'}).status_code,409)
+        investigating={'version':1,'status':'Investigating','note':'Reviewing retained service records','resolution':''}
+        self.assertEqual(self.client.patch(detail_url,headers=self.admin,json=investigating).status_code,200)
+        self.assertEqual(self.client.patch(detail_url,headers=self.admin,json=investigating).status_code,409)
+        closed={'version':2,'status':'Closed','note':'Review complete; no automatic changes','resolution':'Decision recorded for separate handling'}
+        self.assertEqual(self.client.patch(detail_url,headers=self.admin,json={**closed,'resolution':''}).status_code,422)
+        self.assertEqual(self.client.patch(detail_url,headers=self.admin,json=closed).status_code,200)
+        history=self.client.get(detail_url,headers=self.admin).json()
+        self.assertEqual([event['status'] for event in history['events']],['Open','Investigating','Closed'])
+        self.assertIn('Decision: Decision recorded for separate handling',history['events'][-1]['note'])
+        self.assertEqual(history['request']['version'],3)
+        self.assertEqual(self.client.get('/api/customers',headers=self.admin).json()[0]['name'],'Fictional customer')
+        with self.assertRaises(IntegrityError):
+            with engine.begin() as connection:connection.execute(text("UPDATE privacy_request_events SET note='changed'"))
 
     def passport(self):
         customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Passport customer'}).json()

@@ -203,7 +203,7 @@ def audit_events(user:User=Depends(user_dep),db:Session=Depends(get_db)):
 @app.get("/api/permissions")
 def permissions(user:User=Depends(user_dep)):
     if user.role=="admin":
-        return {"role":"admin","permissions":["company.read","users.read","jobs.all","work_orders.manage","approvals.decide","audit.read","analytics.company","learning.review","learning.dataset"]}
+        return {"role":"admin","permissions":["company.read","users.read","jobs.all","work_orders.manage","approvals.decide","audit.read","analytics.company","learning.review","learning.dataset","privacy.manage"]}
     return {"role":"engineer","permissions":["jobs.own","work_orders.assigned","approvals.request","learning.submit","guides.read","diagnostics.run"]}
 
 class CustomerIn(BaseModel):
@@ -886,6 +886,9 @@ def demo_session(role:Literal["admin","engineer","reviewer"]="admin",db:Session=
 
 from .passports import register as register_passports
 register_passports(app,user_dep,check_job)
+
+from .privacy_requests import register as register_privacy_requests
+register_privacy_requests(app,require_admin)
 
 from .cases import register as register_cases
 register_cases(app,user_dep,check_job)
