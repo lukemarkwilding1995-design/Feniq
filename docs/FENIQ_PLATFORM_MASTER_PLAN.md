@@ -219,3 +219,5 @@ Privacy request inventories now flag retained customer-link corrections that ref
 The inventory also counts and checksums immutable diagnostic snapshots and reviewed citations on linked inspections and name-match leads. Their contents require separate manual review and remain outside the Access draft. See `INSPECTION_EVIDENCE_SCOPE_CYCLE_2026-09-22.md`.
 
 Commercial approval requests and learning-record projections are now included as counts/checksums for those inspections. Their rows stay out of the Access draft, though already-included outcome revisions can carry overlapping repair information. See `OPERATIONAL_RECORD_SCOPE_CYCLE_2026-09-22.md`. A current whole-programme gap view is in `WHOLE_SCOPE_STATUS_2026-09-22.md`.
+
+Retained learning reviews and second-stage dataset decisions now also participate in the customer-request inventory checksum as metadata counts, without copying decision reasons or prepared payloads into the Access draft. See `LEARNING_GOVERNANCE_SCOPE_CYCLE_2026-09-22.md`.

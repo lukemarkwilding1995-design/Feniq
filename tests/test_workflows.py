@@ -446,9 +446,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual({page['items'][0]['decision'] for page in pages}, {'Prepare for de-identification','Exclude'})
 
     def test_field_limited_dataset_requires_separate_current_approval(self):
+        customer=self.client.post('/api/customers',headers=self.admin,json={
+            'name':'Jane Smith at 12 Example Street'}).json()
         job=self.job(customer='Jane Smith at 12 Example Street',fault='Phone 07123 456789 reports a stiff handle',
-                     product='Window',diagnosis='Possible keep interference',module='free-text-module').json()
+                     customer_id=customer['id'],product='Window',diagnosis='Possible keep interference',
+                     module='free-text-module').json()
         base='/api/jobs/'+job['id']
+        privacy=self.client.post('/api/privacy-requests',headers=self.admin,json={
+            'customer_id':customer['id'],'kind':'Access','summary':'Fictional research governance review'}).json()
+        scope_url='/api/privacy-requests/'+privacy['id']+'/inventory'
         outcome={'confirmed_diagnosis':'Possible keep interference',
                  'actual_repair':'Private customer note: call 07123 456789',
                  'engineer_feedback':'Jane Smith lives at 12 Example Street',
@@ -456,6 +462,9 @@ class WorkflowTests(unittest.TestCase):
                  'remake_or_part_correct':'Not applicable','engineer_rating':4,
                  'anonymised_for_learning':True,**self.verification(job['id'])}
         self.assertEqual(self.client.post(base+'/learning',headers=self.engineer,json=outcome).status_code,200)
+        before_review=self.client.get(scope_url,headers=self.admin).json()
+        self.assertEqual(before_review['inventory']['inspections'][0]['learning_reviews']['count'],0)
+        self.assertEqual(before_review['inventory']['inspections'][0]['dataset_decisions']['count'],0)
         candidates='/api/learning/dataset-candidates'
         self.assertEqual(self.client.get(candidates,headers=self.admin).json(),[])
         self.assertEqual(self.client.get(candidates,headers=self.engineer).status_code,403)
@@ -464,6 +473,10 @@ class WorkflowTests(unittest.TestCase):
                       'outcome_sha256':review_item['outcome_sha256'],
                       'decision':'Prepare for de-identification','reason':'Fictional reviewed example'}
         self.assertEqual(self.client.post('/api/learning/reviews',headers=self.admin,json=first_review).status_code,200)
+        after_review=self.client.get(scope_url,headers=self.admin).json()
+        self.assertNotEqual(before_review['inventory_sha256'],after_review['inventory_sha256'])
+        self.assertEqual(after_review['inventory']['inspections'][0]['learning_reviews']['count'],1)
+        self.assertNotIn('Fictional reviewed example',json.dumps(after_review))
         candidate=self.client.get(candidates,headers=self.admin).json()[0]
         preview=candidate['preview']
         self.assertEqual(preview['schema_version'],1)
@@ -500,6 +513,22 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.post(grant,headers=self.admin,json={'reason':'Independent review'}).status_code,200)
         self.assertEqual(self.client.post(grant,headers=self.admin,json={'reason':'Independent review'}).status_code,409)
         self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=second_auth,json=decision).status_code,200)
+        after_decision=self.client.get(scope_url,headers=self.admin).json()
+        self.assertNotEqual(after_review['inventory_sha256'],after_decision['inventory_sha256'])
+        self.assertEqual(after_decision['inventory']['inspections'][0]['dataset_decisions']['count'],1)
+        self.assertNotIn('Field-limited preview checked',json.dumps(after_decision))
+        privacy_url='/api/privacy-requests/'+privacy['id']
+        self.assertEqual(self.client.patch(privacy_url,headers=self.admin,json={
+            'version':1,'status':'Investigating','note':'Reviewing fictional research decisions'}).status_code,200)
+        self.assertEqual(self.client.post(privacy_url+'/scope-review',headers=self.admin,json={
+            'version':2,'inventory_sha256':after_decision['inventory_sha256'],
+            'identity_checked':True,'linked_records_checked':True,'unlinked_records_reviewed':True,
+            'note':'Reviewed research decisions separately'}).status_code,200)
+        draft=self.client.get(privacy_url+'/access-preview',headers=self.admin).json()
+        self.assertNotIn('learning_reviews',draft)
+        self.assertNotIn('dataset_decisions',draft)
+        self.assertNotIn('Fictional reviewed example',json.dumps(draft))
+        self.assertNotIn('Field-limited preview checked',json.dumps(draft))
         self.assertEqual(self.client.post('/api/learning/dataset-decisions',headers=second_auth,json=decision).status_code,409)
         dataset=self.client.get('/api/learning/internal-dataset',headers=self.admin).json()
         self.assertEqual(dataset,{'count':1,'records':[preview]})

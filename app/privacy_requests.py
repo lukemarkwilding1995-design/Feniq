@@ -16,6 +16,8 @@ from .models import ApprovalRequest, Customer, DiagnosticSnapshot, Job, JobCusto
 from .passports import Site, ProductPassport, PassportInspection, PassportEvent
 from .cases import TechnicalCase, CaseEvent
 from .citations import Citation
+from .learning_reviews import LearningReview
+from .learning_dataset import DatasetDecision
 from .outcomes import OutcomeRevision
 
 
@@ -195,6 +197,14 @@ def register(app, require_admin):
             LearningRecord.company_id == request.company_id,
             LearningRecord.job_id.in_(review_job_ids),
         ).order_by(LearningRecord.id)).all()
+        learning_reviews = db.scalars(select(LearningReview).where(
+            LearningReview.company_id == request.company_id,
+            LearningReview.job_id.in_(review_job_ids),
+        ).order_by(LearningReview.id)).all()
+        dataset_decisions = db.scalars(select(DatasetDecision).where(
+            DatasetDecision.company_id == request.company_id,
+            DatasetDecision.job_id.in_(review_job_ids),
+        ).order_by(DatasetDecision.id)).all()
         case_events = db.scalars(select(CaseEvent).where(
             CaseEvent.case_id.in_([row.id for row in cases])
         ).order_by(CaseEvent.id)).all()
@@ -210,6 +220,8 @@ def register(app, require_admin):
         citation_history = grouped_digest(citations, "job_id")
         approval_history = grouped_digest(approvals, "job_id")
         learning_history = grouped_digest(learning_records, "job_id")
+        review_history = grouped_digest(learning_reviews, "job_id")
+        dataset_history = grouped_digest(dataset_decisions, "job_id")
         case_history = grouped_digest(case_events, "case_id")
         link_history = grouped_digest(link_events, "job_id")
         def history_digest(grouped, identifier):
@@ -217,7 +229,7 @@ def register(app, require_admin):
             return {"count": len(values), "metadata_sha256": hashlib.sha256(json.dumps(values).encode()).hexdigest()}
 
         payload = {
-            "schema_version": 4,
+            "schema_version": 5,
             "customer": {"id": customer.id, "name": customer.name, "record_sha256": record_digest(customer)},
             "sites": [{"id": row.id, "name": row.name, "record_sha256": record_digest(row)} for row in sites],
             "passports": [{"id": row.id, "label": row.label, "record_sha256": record_digest(row),
@@ -232,6 +244,8 @@ def register(app, require_admin):
                              "reviewed_citations": history_digest(citation_history, row.id),
                              "commercial_approvals": history_digest(approval_history, row.id),
                              "learning_records": history_digest(learning_history, row.id),
+                             "learning_reviews": history_digest(review_history, row.id),
+                             "dataset_decisions": history_digest(dataset_history, row.id),
                              "photo_count": len(photo_groups[row.id]),
                              "photo_metadata_sha256": hashlib.sha256(json.dumps(photo_groups[row.id]).encode()).hexdigest()} for row in jobs],
             "possible_unlinked_inspections": [{"id": row.id, "reference": row.reference,
@@ -242,6 +256,8 @@ def register(app, require_admin):
                                                "reviewed_citations": history_digest(citation_history, row.id),
                                                "commercial_approvals": history_digest(approval_history, row.id),
                                                "learning_records": history_digest(learning_history, row.id),
+                                               "learning_reviews": history_digest(review_history, row.id),
+                                               "dataset_decisions": history_digest(dataset_history, row.id),
                                                "photo_count": len(photo_groups[row.id]),
                                                "photo_metadata_sha256": hashlib.sha256(json.dumps(photo_groups[row.id]).encode()).hexdigest()} for row in possible_unlinked],
             "historical_customer_link_leads": [{
@@ -252,7 +268,7 @@ def register(app, require_admin):
             } for row in historical_events if row.job_id in historical_jobs],
             "technical_cases": [{"id": row.id, "title": row.title, "record_sha256": record_digest(row),
                                  "case_events": history_digest(case_history, row.id)} for row in cases],
-            "scope_note": "The main inventory uses current explicit inspection-customer, site, passport and work-order links. Inspection counts and checksums include retained diagnostic snapshots, reviewed citations, commercial approvals and learning records. Those record rows require separate manual review and are excluded from the Access draft; outcome revisions already in that draft may contain overlapping repair details. Exact customer-name matches and historical correction links below are manual-review leads, not current linked records. Other names and systems may be missed. Private library content and media bytes require manual review; photo metadata counts are not file integrity checks.",
+            "scope_note": "The main inventory uses current explicit inspection-customer, site, passport and work-order links. Inspection counts and checksums include retained diagnostic snapshots, reviewed citations, commercial approvals, learning records and research-governance decisions. Those record rows require separate manual review and are excluded from the Access draft; outcome revisions already in that draft may contain overlapping repair details. Exact customer-name matches and historical correction links below are manual-review leads, not current linked records. Other names and systems may be missed. Private library content and media bytes require manual review; photo metadata counts are not file integrity checks.",
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return {"inventory": payload, "inventory_sha256": hashlib.sha256(encoded.encode()).hexdigest()}

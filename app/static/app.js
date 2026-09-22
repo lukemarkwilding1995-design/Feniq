@@ -363,6 +363,12 @@ function privacyInventoryGroup(
       row.learning_records
         ? `${row.learning_records.count} learning records`
         : "",
+      row.learning_reviews
+        ? `${row.learning_reviews.count} learning reviews`
+        : "",
+      row.dataset_decisions
+        ? `${row.dataset_decisions.count} dataset decisions`
+        : "",
     ]
       .filter(Boolean)
       .join(" · ");
