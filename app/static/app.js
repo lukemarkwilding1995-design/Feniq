@@ -331,6 +331,20 @@ function datasetHistoryCards(items) {
     .join("");
 }
 
+function privacyEventNote(event) {
+  if (event.status !== "Scope reviewed") return esc(event.note);
+  try {
+    const evidence = JSON.parse(event.note);
+    return `${esc(evidence.note)} · Inventory ${esc(evidence.inventory_sha256.slice(0, 16))}…`;
+  } catch {
+    return "Scope review record could not be displayed";
+  }
+}
+
+function privacyInventoryGroup(title, rows, label) {
+  return `<div class="visit"><b>${esc(title)} · ${rows.length}</b>${rows.length ? `<ul>${rows.map((row) => `<li>${esc(row[label] || row.id)}${row.photo_count ? ` · ${row.photo_count} photos` : ""}</li>`).join("")}</ul>` : '<p class="muted">No explicit links recorded.</p>'}</div>`;
+}
+
 const pages = {
   async dashboard() {
     const [jobs, orders, approvals] = await Promise.all([
@@ -876,19 +890,40 @@ document.addEventListener("click", async (e) => {
   }
   if (b.dataset.privacyOpen) {
     await busy(b, async () => {
-      const detail = await api(
-        `/api/privacy-requests/${b.dataset.privacyOpen}`,
-      );
+      const [detail, scope] = await Promise.all([
+        api(`/api/privacy-requests/${b.dataset.privacyOpen}`),
+        api(`/api/privacy-requests/${b.dataset.privacyOpen}/inventory`),
+      ]);
       const request = detail.request;
       const next = {
         Open: ["Investigating"],
         Investigating: ["Awaiting Decision", "Closed"],
         "Awaiting Decision": ["Investigating", "Closed"],
         Closed: ["Investigating"],
-      }[request.status];
+      }[request.status].filter(
+        (status) => status !== "Closed" || detail.scope_ready,
+      );
+      const inventory = scope.inventory;
+      const scopeForm = ["Investigating", "Awaiting Decision"].includes(
+        request.status,
+      )
+        ? `<form id="privacyScopeForm" data-id="${esc(request.id)}"><input type="hidden" name="version" value="${request.version}"><input type="hidden" name="inventory_sha256" value="${esc(scope.inventory_sha256)}"><label class="check"><input type="checkbox" name="identity_checked" required> I checked the requester’s identity outside FenIQ.</label><label class="check"><input type="checkbox" name="linked_records_checked" required> I reviewed the explicitly linked records listed above.</label><label class="check"><input type="checkbox" name="unlinked_records_reviewed" required> I separately checked for unlinked or legacy records.</label>${area("Manual scope review note", "note", "", 'required minlength="5" maxlength="2000"')}<p class="error form-error" role="alert"></p><button class="primary">Retain scope review</button></form>`
+        : "";
       openModal(
         `${request.kind} request · ${request.customer_name}`,
-        `<p>${esc(request.summary)}</p><div class="actions">${badge(request.status)}${badge("Revision " + request.version)}</div>${request.resolution ? `<p class="notice">Decision: ${esc(request.resolution)}</p>` : ""}<h3>Retained history</h3>${detail.events.map((event) => `<div class="visit"><b>${esc(event.status)}</b><small>${date(event.created_at)} · ${time(event.created_at)}</small><p>${esc(event.note)}</p></div>`).join("")}<form id="privacyChangeForm" data-id="${esc(request.id)}"><input type="hidden" name="version" value="${request.version}">${select("Next status", "status", next)}${area("Reason for change", "note", "", 'required minlength="5" maxlength="2000"')}${area("Decision when closing", "resolution", "", 'maxlength="2000"')}<p class="muted">A decision is required when closing. Changing status does not perform access, correction or deletion.</p><p class="error form-error" role="alert"></p><button class="primary">Save status</button></form>`,
+        `<p>${esc(request.summary)}</p><div class="actions">${badge(request.status)}${badge("Revision " + request.version)}${detail.scope_ready ? badge("Scope reviewed") : ""}</div>${request.resolution ? `<p class="notice">Decision: ${esc(request.resolution)}</p>` : ""}<h3>Explicitly linked record inventory</h3><p class="muted">SHA-256 ${esc(scope.inventory_sha256.slice(0, 16))}… · ${esc(inventory.scope_note)}</p>${privacyInventoryGroup("Sites", inventory.sites, "name")}${privacyInventoryGroup("Product passports", inventory.passports, "label")}${privacyInventoryGroup("Work orders", inventory.work_orders, "title")}${privacyInventoryGroup("Inspections", inventory.inspections, "reference")}${privacyInventoryGroup("Technical cases", inventory.technical_cases, "title")}${scopeForm}${request.kind === "Access" && detail.scope_ready && request.status !== "Closed" ? `<h3>Internal access draft</h3><p class="muted">For admin review only. Check third-party content and records outside this inventory before any disclosure.</p><button type="button" data-privacy-preview="${esc(request.id)}">Inspect linked-record draft</button>` : ""}<h3>Retained history</h3>${detail.events.map((event) => `<div class="visit"><b>${esc(event.status)}</b><small>${date(event.created_at)} · ${time(event.created_at)}</small><p>${privacyEventNote(event)}</p></div>`).join("")}<form id="privacyChangeForm" data-id="${esc(request.id)}"><input type="hidden" name="version" value="${request.version}">${select("Next status", "status", next)}${area("Reason for change", "note", "", 'required minlength="5" maxlength="2000"')}${area("Decision when closing", "resolution", "", 'maxlength="2000"')}<p class="muted">A fresh scope review is required before closing. Saving a status or decision does not disclose, correct or delete data.</p><p class="error form-error" role="alert"></p><button class="primary">Save status</button></form>`,
+      );
+    });
+    return;
+  }
+  if (b.dataset.privacyPreview) {
+    await busy(b, async () => {
+      const draft = await api(
+        `/api/privacy-requests/${b.dataset.privacyPreview}/access-preview`,
+      );
+      openModal(
+        "Internal access draft",
+        `<p class="notice">${esc(draft.review_note)}</p><p class="muted">Request revision ${draft.request_version} · inventory SHA-256 ${esc(draft.inventory_sha256)}</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:55vh;overflow:auto">${esc(JSON.stringify(draft, null, 2))}</pre>`,
       );
     });
     return;
@@ -1246,6 +1281,19 @@ document.addEventListener("submit", async (e) => {
         $("modal").close();
         await go("privacy");
         toast("Request status retained");
+      }
+      if (form.id === "privacyScopeForm") {
+        await send(`/api/privacy-requests/${form.dataset.id}/scope-review`, {
+          ...data,
+          version: Number(data.version),
+          identity_checked: form.elements.identity_checked.checked,
+          linked_records_checked: form.elements.linked_records_checked.checked,
+          unlinked_records_reviewed:
+            form.elements.unlinked_records_reviewed.checked,
+        });
+        $("modal").close();
+        await go("privacy");
+        toast("Scope review retained for the current inventory");
       }
       if (form.id === "photoForm") {
         const fd = new FormData(form);

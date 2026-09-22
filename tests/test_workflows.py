@@ -75,16 +75,89 @@ class WorkflowTests(unittest.TestCase):
         investigating={'version':1,'status':'Investigating','note':'Reviewing retained service records','resolution':''}
         self.assertEqual(self.client.patch(detail_url,headers=self.admin,json=investigating).status_code,200)
         self.assertEqual(self.client.patch(detail_url,headers=self.admin,json=investigating).status_code,409)
-        closed={'version':2,'status':'Closed','note':'Review complete; no automatic changes','resolution':'Decision recorded for separate handling'}
+        scope_url=detail_url+'/inventory'
+        review_url=detail_url+'/scope-review'
+        self.assertEqual(self.client.get(scope_url,headers=self.engineer).status_code,403)
+        self.assertEqual(self.client.get(scope_url,headers=outsider_auth).status_code,404)
+        initial=self.client.get(scope_url,headers=self.admin).json()
+        self.assertEqual(initial['inventory']['customer']['id'],customer['id'])
+        self.assertEqual(initial['inventory']['inspections'],[])
+        review={'version':2,'inventory_sha256':initial['inventory_sha256'],
+                'identity_checked':True,'linked_records_checked':True,'unlinked_records_reviewed':True,
+                'note':'Fictional identity and unlinked records reviewed manually'}
+        self.assertEqual(self.client.post(review_url,headers=self.engineer,json=review).status_code,403)
+        self.assertEqual(self.client.post(review_url,headers=outsider_auth,json=review).status_code,404)
+        self.assertEqual(self.client.post(review_url,headers=self.admin,json={**review,'identity_checked':False}).status_code,422)
+        self.assertEqual(self.client.post(review_url,headers=self.admin,json={**review,'inventory_sha256':'0'*64}).status_code,409)
+        self.assertEqual(self.client.post(review_url,headers=self.admin,json=review).status_code,200)
+        self.assertTrue(self.client.get(detail_url,headers=self.admin).json()['scope_ready'])
+        self.assertEqual(self.client.post(review_url,headers=self.admin,json=review).status_code,409)
+        closed={'version':3,'status':'Closed','note':'Review complete; no automatic changes','resolution':'Decision recorded for separate handling'}
         self.assertEqual(self.client.patch(detail_url,headers=self.admin,json={**closed,'resolution':''}).status_code,422)
+        linked=self.client.post('/api/work-orders',headers=self.admin,json={'title':'Linked fictional visit','customer_id':customer['id']})
+        self.assertEqual(linked.status_code,200)
+        changed=self.client.get(scope_url,headers=self.admin).json()
+        self.assertNotEqual(initial['inventory_sha256'],changed['inventory_sha256'])
+        self.assertFalse(self.client.get(detail_url,headers=self.admin).json()['scope_ready'])
+        self.assertEqual(changed['inventory']['work_orders'][0]['id'],linked.json()['id'])
+        self.assertEqual(self.client.patch(detail_url,headers=self.admin,json=closed).status_code,409)
+        self.assertEqual(self.client.post(review_url,headers=self.admin,json={**review,'version':3,'inventory_sha256':changed['inventory_sha256']}).status_code,200)
+        self.assertTrue(self.client.get(detail_url,headers=self.admin).json()['scope_ready'])
+        closed['version']=4
         self.assertEqual(self.client.patch(detail_url,headers=self.admin,json=closed).status_code,200)
         history=self.client.get(detail_url,headers=self.admin).json()
-        self.assertEqual([event['status'] for event in history['events']],['Open','Investigating','Closed'])
+        self.assertEqual([event['status'] for event in history['events']],['Open','Investigating','Scope reviewed','Scope reviewed','Closed'])
         self.assertIn('Decision: Decision recorded for separate handling',history['events'][-1]['note'])
-        self.assertEqual(history['request']['version'],3)
+        self.assertEqual(history['request']['version'],5)
         self.assertEqual(self.client.get('/api/customers',headers=self.admin).json()[0]['name'],'Fictional customer')
         with self.assertRaises(IntegrityError):
             with engine.begin() as connection:connection.execute(text("UPDATE privacy_request_events SET note='changed'"))
+
+    def test_access_draft_requires_current_review_and_stays_within_company(self):
+        customer=self.client.post('/api/customers',headers=self.admin,json={
+            'name':'Fictional access customer','email':'access@example.test'}).json()
+        outsider=self.client.post('/api/register-company',json={
+            'company_name':'Access outsider','admin_name':'Other','email':'access-outside@example.test',
+            'password':'strong-password'}).json()
+        outsider_auth={'Authorization':'Bearer '+outsider['token']}
+        outsider_customer=self.client.post('/api/customers',headers=outsider_auth,json={
+            'name':'Other private customer','email':'outside@example.test'}).json()
+        request=self.client.post('/api/privacy-requests',headers=self.admin,json={
+            'customer_id':customer['id'],'kind':'Access','summary':'Fictional request for linked records'}).json()
+        url='/api/privacy-requests/'+request['id']
+        draft_url=url+'/access-preview'
+        self.assertEqual(self.client.get(draft_url,headers=self.engineer).status_code,403)
+        self.assertEqual(self.client.get(draft_url,headers=outsider_auth).status_code,404)
+        self.assertEqual(self.client.get(draft_url,headers=self.admin).status_code,409)
+        self.assertEqual(self.client.patch(url,headers=self.admin,json={
+            'version':1,'status':'Investigating','note':'Checking fictional request'}).status_code,200)
+        self.assertEqual(self.client.get(draft_url,headers=self.admin).status_code,409)
+        site=self.client.post('/api/sites',headers=self.admin,json={
+            'customer_id':customer['id'],'name':'Access site','address':'Fictional address'}).json()
+        linked=self.client.post('/api/work-orders',headers=self.admin,json={
+            'customer_id':customer['id'],'title':'Access-linked visit'}).json()
+        inventory=self.client.get(url+'/inventory',headers=self.admin).json()
+        review={'version':2,'inventory_sha256':inventory['inventory_sha256'],
+                'identity_checked':True,'linked_records_checked':True,'unlinked_records_reviewed':True,
+                'note':'Fictional requester and unlinked records checked'}
+        self.assertEqual(self.client.post(url+'/scope-review',headers=self.admin,json=review).status_code,200)
+        draft_response=self.client.get(draft_url,headers=self.admin)
+        self.assertEqual(draft_response.status_code,200)
+        self.assertEqual(draft_response.headers['cache-control'],'private, no-store')
+        draft=draft_response.json()
+        self.assertTrue(draft['draft_only'])
+        self.assertEqual(draft['customer']['email'],'access@example.test')
+        self.assertEqual(draft['sites'][0]['id'],site['id'])
+        self.assertEqual(draft['work_orders'][0]['id'],linked['id'])
+        self.assertNotIn(outsider_customer['id'],json.dumps(draft))
+        self.assertEqual(self.client.get(url,headers=self.admin).json()['request']['version'],3)
+        self.assertEqual(self.client.post('/api/work-orders',headers=self.admin,json={
+            'customer_id':customer['id'],'title':'New linked visit'}).status_code,200)
+        self.assertEqual(self.client.get(draft_url,headers=self.admin).status_code,409)
+        deletion=self.client.post('/api/privacy-requests',headers=self.admin,json={
+            'customer_id':customer['id'],'kind':'Deletion','summary':'Fictional deletion review'}).json()
+        self.assertEqual(self.client.get('/api/privacy-requests/'+deletion['id']+'/access-preview',
+                                         headers=self.admin).status_code,409)
 
     def passport(self):
         customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Passport customer'}).json()
