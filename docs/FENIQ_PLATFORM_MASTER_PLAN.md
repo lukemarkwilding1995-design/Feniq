@@ -33,7 +33,7 @@ Foundations required before later waves:
 5. Reusable validation, error responses, accessible responsive forms and meaningful integration tests.
 6. Reliable configuration, observability, backup/restore procedures and deployment checks.
 
-Existing endpoints are not proof that these foundations are complete. The application now requires a versioned migration ledger; SQLite baseline adoption and snapshot migrations are tested. PostgreSQL integration and full legacy constraint reconciliation remain production gates. Introduce additive, reviewed migrations with backfill/rollback procedures before adding platform tables to persistent production databases.
+Existing endpoints are not proof that these foundations are complete. The application now requires a versioned migration ledger; SQLite baseline adoption and snapshot migrations are tested. An isolated PostgreSQL migration validator is available in `scripts/validate_postgres.py`, but its live run and full legacy constraint reconciliation remain production gates. Introduce additive, reviewed migrations with backfill/rollback procedures before adding platform tables to persistent production databases.
 
 ## Approved extension: modules 41–52
 

@@ -337,6 +337,8 @@ The repository remains Docker deployable. `railway.json` is included for Railway
 
 A managed PostgreSQL database should be used for the private beta. Photo uploads should move from local disk to persistent/cloud object storage before relying on the service for real customer evidence.
 
+For a PostgreSQL migration smoke test, set `FENIQ_TEST_POSTGRES_URL` to a database where the test account may create schemas, then run `python scripts/validate_postgres.py`. The validator creates a randomly named isolated schema, applies migrations twice, checks the revision ledger and immutable request history, and drops only that schema. This test has not run merely by running the SQLite unit suite; it needs a live PostgreSQL service and the `psycopg` dependency from `requirements.txt`.
+
 ### Billing
 
 V11 still does **not** process payments. Connect a PCI-compliant provider such as Stripe rather than storing payment-card data inside FenIQ. Billing needs verified webhooks, subscription entitlement state, VAT/tax configuration, invoice lifecycle and cancellation handling.
