@@ -1,4 +1,4 @@
-import os, json, uuid, secrets
+import os, json, uuid, secrets, hashlib
 from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, Header, UploadFile, File, Form
 from fastapi.responses import FileResponse, StreamingResponse, Response
@@ -665,8 +665,37 @@ def one_job(job_id: str, user: User = Depends(user_dep), db: Session = Depends(g
 class CustomerLinkCorrection(BaseModel):
     expected_customer_id: str | None
     target_customer_id: str | None
+    context_sha256: str = Field(min_length=64,max_length=64)
     identity_confirmed: bool
     reason: str = Field(min_length=5, max_length=2000)
+
+def customer_link_context(db, job):
+    from .passports import PassportInspection, ProductPassport, Site
+    orders=db.scalars(select(WorkOrder).where(
+        WorkOrder.company_id==job.company_id,WorkOrder.job_id==job.id
+    ).order_by(WorkOrder.id)).all()
+    passports=db.execute(select(ProductPassport,Site).join(
+        PassportInspection,PassportInspection.passport_id==ProductPassport.id).join(
+        Site,Site.id==ProductPassport.site_id).where(
+        ProductPassport.company_id==job.company_id,Site.company_id==job.company_id,
+        PassportInspection.job_id==job.id).order_by(ProductPassport.id)).all()
+    payload={
+        "job_id":job.id,"direct_customer_id":job.customer_id,
+        "customer_text":job.customer,"reference":job.reference,
+        "work_orders":[{"id":row.id,"title":row.title,"customer_id":row.customer_id} for row in orders],
+        "passports":[{"id":product.id,"label":product.label,"site_name":site.name,
+                      "customer_id":site.customer_id} for product,site in passports],
+    }
+    encoded=json.dumps(payload,sort_keys=True,separators=(",", ":"),ensure_ascii=False)
+    return {**payload,"context_sha256":hashlib.sha256(encoded.encode()).hexdigest()}
+
+@app.get("/api/jobs/{job_id}/customer-link-context")
+def read_customer_link_context(job_id: str, response: Response,
+                               admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    job=db.get(Job,job_id)
+    if not job or job.company_id!=admin.company_id: raise HTTPException(404,"Inspection not found")
+    response.headers["Cache-Control"]="private, no-store"
+    return customer_link_context(db,job)
 
 @app.get("/api/jobs/{job_id}/customer-link-history")
 def customer_link_history(job_id: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
@@ -690,22 +719,17 @@ def correct_customer_link(job_id: str, data: CustomerLinkCorrection,
     if len(reason)<5: raise HTTPException(422,"Explain the customer link correction")
     if job.customer_id!=data.expected_customer_id:
         raise HTTPException(409,"Customer link changed; reload the inspection")
+    context=customer_link_context(db,job)
+    if context["context_sha256"]!=data.context_sha256:
+        raise HTTPException(409,"Related links changed; review them again")
     if data.target_customer_id==job.customer_id:
         raise HTTPException(409,"Choose a different customer link")
     if data.target_customer_id:
         target=db.get(Customer,data.target_customer_id)
         if not target or target.company_id!=admin.company_id:
             raise HTTPException(404,"Customer not found")
-    from .passports import PassportInspection, ProductPassport, Site
-    order_customer_ids=set(db.scalars(select(WorkOrder.customer_id).where(
-        WorkOrder.company_id==admin.company_id,WorkOrder.job_id==job.id,
-        WorkOrder.customer_id.is_not(None))).all())
-    passport_customer_ids=set(db.scalars(select(Site.customer_id).join(
-        ProductPassport,ProductPassport.site_id==Site.id).join(
-        PassportInspection,PassportInspection.passport_id==ProductPassport.id).where(
-        Site.company_id==admin.company_id,ProductPassport.company_id==admin.company_id,
-        PassportInspection.job_id==job.id)).all())
-    linked_customer_ids=order_customer_ids | passport_customer_ids
+    linked_customer_ids={row["customer_id"] for row in context["work_orders"]+context["passports"]
+                         if row["customer_id"] is not None}
     if linked_customer_ids and (data.target_customer_id is None or
                                 any(identifier!=data.target_customer_id for identifier in linked_customer_ids)):
         raise HTTPException(409,"Resolve conflicting work-order or Product Passport links first")

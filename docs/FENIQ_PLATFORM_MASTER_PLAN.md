@@ -211,3 +211,5 @@ The request inventory additionally flags exact-name, company-local inspections l
 Migration 0012 adds an explicit, nullable inspection-customer link. New inspections can bind to an existing company customer, with work-order consistency checks, and privacy inventory follows the direct link. Legacy jobs remain unlinked until reviewed; no name-based backfill is performed. See `INSPECTION_CUSTOMER_LINK_CYCLE_2026-09-22.md`.
 
 Migration 0013 adds an immutable history for admin-reviewed customer-link corrections on inspections. Identity confirmation, a reason, tenant validation, stale-link protection and work-order/passport conflict checks gate changes. The original diagnosis snapshot remains intact. See `CUSTOMER_LINK_CORRECTION_CYCLE_2026-09-22.md`.
+
+The correction form now displays the explicit work-order and Product Passport links it asks the admin to review. Submission is bound to that displayed link context; a later change requires another review even if the direct inspection link is unchanged.

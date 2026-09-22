@@ -996,10 +996,34 @@ document.addEventListener("click", async (e) => {
   }
   if (b.dataset.customerLinkCorrection) {
     await busy(b, async () => {
-      const customers = await api("/api/customers");
+      const [customers, context] = await Promise.all([
+        api("/api/customers"),
+        api(
+          `/api/jobs/${b.dataset.customerLinkCorrection}/customer-link-context`,
+        ),
+      ]);
+      const customerName = (id) =>
+        customers.find((c) => c.id === id)?.name ||
+        (id ? "Unavailable customer" : "No customer linked");
+      const workOrders = context.work_orders.length
+        ? context.work_orders
+            .map(
+              (row) =>
+                `<li>${esc(row.title)} · ${esc(customerName(row.customer_id))}</li>`,
+            )
+            .join("")
+        : "<li>No linked work orders</li>";
+      const passports = context.passports.length
+        ? context.passports
+            .map(
+              (row) =>
+                `<li>${esc(row.label)} · ${esc(row.site_name)} · ${esc(customerName(row.customer_id))}</li>`,
+            )
+            .join("")
+        : "<li>No linked Product Passports</li>";
       openModal(
         "Review inspection customer link",
-        `<form id="customerLinkForm" data-id="${esc(b.dataset.customerLinkCorrection)}"><input type="hidden" name="expected_customer_id" value="${esc(activeJob.customer_id || "")}"><p>Current direct link: ${esc(customers.find((c) => c.id === activeJob.customer_id)?.name || "No direct link")}</p>${select("Confirmed customer record", "target_customer_id", customers, activeJob.customer_id, "No direct link")}${area("Reason and evidence for this correction", "reason", "", 'required minlength="5" maxlength="2000"')}<label class="check"><input type="checkbox" name="identity_confirmed" required> I checked the customer's identity and any linked work order or Product Passport.</label><p class="muted">This changes the direct record link and retains the correction. It does not rewrite the original diagnosis or change linked work orders and passports.</p><p class="error form-error" role="alert"></p><button class="primary">Retain customer link correction</button></form>`,
+        `<form id="customerLinkForm" data-id="${esc(b.dataset.customerLinkCorrection)}"><input type="hidden" name="expected_customer_id" value="${esc(context.direct_customer_id || "")}"><input type="hidden" name="context_sha256" value="${esc(context.context_sha256)}"><p>Original customer / site text: ${esc(context.customer_text || "Not recorded")}</p><p>Current direct link: ${esc(customerName(context.direct_customer_id))}</p><h3>Other explicit links</h3><ul>${workOrders}${passports}</ul><p class="muted">Review scope ${esc(context.context_sha256.slice(0, 16))}… · Changes to these linked records require a fresh review.</p>${select("Confirmed customer record", "target_customer_id", customers, context.direct_customer_id, "No direct link")}${area("Reason and evidence for this correction", "reason", "", 'required minlength="5" maxlength="2000"')}<label class="check"><input type="checkbox" name="identity_confirmed" required> I checked the customer's identity and the links listed above.</label><p class="muted">This changes the direct record link and retains the correction. It does not rewrite the original diagnosis or change linked work orders and passports.</p><p class="error form-error" role="alert"></p><button class="primary">Retain customer link correction</button></form>`,
       );
     });
     return;
@@ -1324,6 +1348,7 @@ document.addEventListener("submit", async (e) => {
         await send(`/api/jobs/${form.dataset.id}/customer-link`, {
           expected_customer_id: data.expected_customer_id || null,
           target_customer_id: data.target_customer_id || null,
+          context_sha256: data.context_sha256,
           identity_confirmed: form.elements.identity_confirmed.checked,
           reason: data.reason,
         });

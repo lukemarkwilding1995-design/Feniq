@@ -212,8 +212,17 @@ class WorkflowTests(unittest.TestCase):
         job=self.job(customer='Fictional first',reference='LEGACY-1').json()
         url='/api/jobs/'+job['id']+'/customer-link'
         history_url='/api/jobs/'+job['id']+'/customer-link-history'
+        context_url='/api/jobs/'+job['id']+'/customer-link-context'
+        context_response=self.client.get(context_url,headers=self.admin)
+        self.assertEqual(context_response.headers['cache-control'],'private, no-store')
+        context=context_response.json()
+        self.assertEqual(context['work_orders'],[])
+        self.assertEqual(context['passports'],[])
         review={'expected_customer_id':None,'target_customer_id':first['id'],
+                'context_sha256':context['context_sha256'],
                 'identity_confirmed':True,'reason':'Verified fictional customer and original service record'}
+        self.assertEqual(self.client.get(context_url,headers=self.engineer).status_code,403)
+        self.assertEqual(self.client.get(context_url,headers=outside_auth).status_code,404)
         self.assertEqual(self.client.get(history_url,headers=self.engineer).status_code,403)
         self.assertEqual(self.client.post(url,headers=self.engineer,json=review).status_code,403)
         self.assertEqual(self.client.get(history_url,headers=outside_auth).status_code,404)
@@ -236,25 +245,36 @@ class WorkflowTests(unittest.TestCase):
         inventory=self.client.get('/api/privacy-requests/'+request['id']+'/inventory',headers=self.admin).json()['inventory']
         self.assertEqual([row['id'] for row in inventory['inspections']],[job['id']])
         self.assertEqual(inventory['possible_unlinked_inspections'],[])
+        fresh_context=self.client.get(context_url,headers=self.admin).json()
         moved=self.client.post(url,headers=self.admin,json={**review,
             'expected_customer_id':first['id'],'target_customer_id':second['id'],
+            'context_sha256':fresh_context['context_sha256'],
             'reason':'Corrected to the verified second fictional customer'})
         self.assertEqual(moved.status_code,200)
         self.assertEqual(moved.json()['customer_id'],second['id'])
         first_inventory=self.client.get('/api/privacy-requests/'+request['id']+'/inventory',headers=self.admin).json()['inventory']
         self.assertEqual(first_inventory['inspections'],[])
         self.assertEqual(first_inventory['possible_unlinked_inspections'],[])
+        second_context=self.client.get(context_url,headers=self.admin).json()
         self.assertEqual(self.client.post(url,headers=self.admin,json={**review,
             'expected_customer_id':second['id'],'target_customer_id':first['id'],
+            'context_sha256':second_context['context_sha256'],
             'reason':'Returned to first fictional customer after review'}).status_code,200)
         self.assertEqual(len(self.client.get(history_url,headers=self.admin).json()),3)
+        before_order=self.client.get(context_url,headers=self.admin).json()
         order=self.client.post('/api/work-orders',headers=self.admin,json={
             'title':'Confirmed visit','customer_id':first['id'],'job_id':job['id'],
             'assigned_engineer_id':self.engineer_id}).json()
+        after_order=self.client.get(context_url,headers=self.admin).json()
+        self.assertNotEqual(before_order['context_sha256'],after_order['context_sha256'])
+        self.assertEqual(after_order['work_orders'][0]['id'],order['id'])
         correction={**review,'expected_customer_id':first['id'],'target_customer_id':second['id'],
                     'reason':'Fictional correction after another identity check'}
         self.assertEqual(self.client.post(url,headers=self.admin,json=correction).status_code,409)
-        self.assertEqual(self.client.post(url,headers=self.admin,json={**correction,'target_customer_id':None}).status_code,409)
+        self.assertEqual(self.client.post(url,headers=self.admin,json={**correction,
+            'context_sha256':after_order['context_sha256']}).status_code,409)
+        self.assertEqual(self.client.post(url,headers=self.admin,json={**correction,
+            'context_sha256':after_order['context_sha256'],'target_customer_id':None}).status_code,409)
         self.assertEqual(self.client.patch('/api/work-orders/'+order['id'],headers=self.admin,
                                            json={**order,'customer_id':second['id']}).status_code,409)
         with self.assertRaises(IntegrityError):
