@@ -1,0 +1,4 @@
+[
+  "CREATE TABLE inspection_drafts (user_id INTEGER NOT NULL PRIMARY KEY REFERENCES users(id), company_id INTEGER NOT NULL REFERENCES companies(id), version INTEGER NOT NULL, step VARCHAR(20) NOT NULL, payload_json TEXT NOT NULL, updated_at DATETIME NOT NULL)",
+  "CREATE INDEX ix_inspection_drafts_company_id ON inspection_drafts (company_id)"
+]

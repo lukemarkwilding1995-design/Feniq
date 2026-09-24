@@ -19,6 +19,7 @@ let token = localStorage.getItem("feniq_token") || "",
   editing = null,
   activeJob = null,
   workOrderId = null,
+  draftVersion = 0,
   pageVersion = 0;
 let photoUrls = [];
 const outcomes = [
@@ -146,6 +147,10 @@ function openModal(title, html) {
 function signOut() {
   token = "";
   user = null;
+  draft = {};
+  draftVersion = 0;
+  diagnosis = null;
+  workOrderId = null;
   localStorage.removeItem("feniq_token");
   $("shell").classList.add("hidden");
   $("auth").classList.remove("hidden");
@@ -377,10 +382,11 @@ function privacyInventoryGroup(
 
 const pages = {
   async dashboard() {
-    const [jobs, orders, approvals] = await Promise.all([
+    const [jobs, orders, approvals, savedDraft] = await Promise.all([
       api("/api/jobs"),
       api("/api/work-orders"),
       api("/api/approvals"),
+      api("/api/inspection-draft"),
     ]);
     const open = orders
       .filter((w) => !["Complete", "Cancelled"].includes(w.status))
@@ -394,7 +400,7 @@ const pages = {
         "Here’s what’s happening across your service visits.",
         newButton,
       ) +
-      `<div class="hero"><div><div class="eyebrow">KNOWLEDGE AT THE POINT OF REPAIR</div><h2>Every check brings you closer.</h2><p>Turn observations into a clear diagnosis, a considered repair and a report you can stand behind.</p><button class="primary" data-action="new">Start an inspection ↗</button> <button data-go="library">Explore field guides</button></div><div class="hero-mark" aria-hidden="true">▥</div></div><div class="stats">${stat("Inspections", jobs.length, "Saved service records")}${stat("Visits to complete", open.length, "Scheduled and active work")}${stat("Repairs resolved", jobs.filter((j) => j.outcome === "Adjusted / Resolved").length, "Confirmed in inspection records")}${stat("Awaiting approval", approvals.filter((a) => a.status === "Pending").length, "Commercial decisions")}</div><div class="grid"><section class="panel"><div class="panel-head"><h3>Recent inspections</h3><button data-go="jobs">View all ↗</button></div>${jobTable(jobs.slice(0, 5))}</section><section class="panel"><div class="panel-head"><h3>Upcoming visits</h3><button data-go="schedule">Schedule ↗</button></div>${
+      `<div class="hero"><div><div class="eyebrow">KNOWLEDGE AT THE POINT OF REPAIR</div><h2>Every check brings you closer.</h2><p>Turn observations into a clear diagnosis, a considered repair and a report you can stand behind.</p><button class="primary" data-action="new">Start an inspection ↗</button> <button data-go="library">Explore field guides</button></div><div class="hero-mark" aria-hidden="true">▥</div></div>${savedDraft ? `<section class="panel" style="margin:20px 0"><div class="panel-head"><div><h2>Unfinished inspection</h2><p class="muted">${esc(savedDraft.payload.customer || "Site not entered")} · ${esc(savedDraft.step)} · saved ${date(savedDraft.updated_at)}. This is private to your account and is not a diagnosis or signed report.</p></div><div class="actions"><button class="primary" data-action="resume-draft">Resume draft ↗</button><button data-action="discard-draft" data-version="${savedDraft.version}">Discard draft</button></div></div></section>` : ""}<div class="stats">${stat("Inspections", jobs.length, "Saved service records")}${stat("Visits to complete", open.length, "Scheduled and active work")}${stat("Repairs resolved", jobs.filter((j) => j.outcome === "Adjusted / Resolved").length, "Confirmed in inspection records")}${stat("Awaiting approval", approvals.filter((a) => a.status === "Pending").length, "Commercial decisions")}</div><div class="grid"><section class="panel"><div class="panel-head"><h3>Recent inspections</h3><button data-go="jobs">View all ↗</button></div>${jobTable(jobs.slice(0, 5))}</section><section class="panel"><div class="panel-head"><h3>Upcoming visits</h3><button data-go="schedule">Schedule ↗</button></div>${
         open.length
           ? open
               .slice(0, 3)
@@ -728,6 +734,7 @@ function startInspection(customer = "", order = null, customerId = null) {
     outcome: "Further Investigation",
   };
   diagnosis = null;
+  draftVersion = 0;
   editing = null;
   workOrderId = order?.id || null;
   if (order) {
@@ -736,6 +743,119 @@ function startInspection(customer = "", order = null, customerId = null) {
   }
   go("inspection");
 }
+function showExistingDraft(saved) {
+  openModal(
+    "Unfinished inspection already saved",
+    `<p>${esc(saved.payload.customer || "Site not entered")} has an unfinished inspection saved at the ${esc(saved.step)} step.</p><p class="muted">FenIQ keeps one private unfinished inspection per engineer. Resume it or discard it before starting another.</p><div class="actions"><button class="primary" data-action="resume-draft">Resume draft ↗</button><button data-action="discard-draft" data-version="${esc(saved.version)}">Discard draft</button></div>`,
+  );
+}
+async function beginInspection(customer = "", order = null, customerId = null) {
+  const saved = await api("/api/inspection-draft");
+  if (saved) {
+    showExistingDraft(saved);
+    return;
+  }
+  startInspection(customer, order, customerId);
+}
+const draftFields = [
+  "customer",
+  "customer_id",
+  "reference",
+  "product",
+  "system_name",
+  "fault",
+  "module",
+  "diagnostic_answers",
+  "work_done",
+  "parts_required",
+  "outcome",
+  "engineer_notes",
+];
+function captureDraftForm() {
+  const form = document.querySelector("#detailsForm, #checksForm, #resultForm");
+  if (!form) return;
+  const values = Object.fromEntries(new FormData(form));
+  if (form.id === "checksForm") {
+    const checks =
+      catalogue.find((module) => module.id === draft.module)?.checks || [];
+    draft.diagnostic_answers = {};
+    for (const check of checks) {
+      if (values[check.key] === "" || values[check.key] === undefined) continue;
+      draft.diagnostic_answers[check.key] =
+        check.type === "bool"
+          ? values[check.key] === "true"
+          : check.type === "number"
+            ? Number(values[check.key])
+            : values[check.key];
+    }
+  } else {
+    draft = { ...draft, ...values };
+  }
+}
+async function saveInspectionDraft() {
+  captureDraftForm();
+  const payload = Object.fromEntries(
+    draftFields
+      .filter((key) => draft[key] !== undefined)
+      .map((key) => [key, draft[key]]),
+  );
+  payload.work_order_id = workOrderId;
+  const step =
+    screen === "inspection"
+      ? "details"
+      : screen === "checks"
+        ? "checks"
+        : "result";
+  const saved = await send(
+    "/api/inspection-draft",
+    {
+      expected_version: draftVersion,
+      step,
+      payload,
+    },
+    "PUT",
+  );
+  draftVersion = saved.version;
+  await go("dashboard");
+  toast("Private inspection draft saved. Resume it from your workspace.");
+}
+async function resumeInspectionDraft() {
+  const saved = await api("/api/inspection-draft");
+  if (!saved) throw Error("No saved inspection draft is available.");
+  draft = saved.payload;
+  draftVersion = saved.version;
+  workOrderId = draft.work_order_id || null;
+  editing = null;
+  diagnosis = null;
+  let step = saved.step;
+  if (
+    step !== "details" &&
+    !catalogue.some((module) => module.id === draft.module)
+  ) {
+    step = "details";
+    draft.module = "";
+    draft.diagnostic_answers = {};
+    toast(
+      "That diagnostic module changed. Select a current module before continuing.",
+      true,
+    );
+  }
+  if (step === "result") {
+    try {
+      diagnosis = await send("/api/diagnostics/run", {
+        module_id: draft.module,
+        answers: draft.diagnostic_answers,
+      });
+    } catch {
+      step = "checks";
+      toast(
+        "Diagnostic rules or checks changed. Review the physical findings again.",
+        true,
+      );
+    }
+  }
+  await go(step === "details" ? "inspection" : step);
+}
 function renderDetails(customers) {
   return (
     head(
@@ -743,7 +863,7 @@ function renderDetails(customers) {
       "Start with the essentials",
       "Capture the site and reported issue before physical checks.",
     ) +
-    `<div class="stepper"><span class="current">1 · Details</span>→<span>2 · Physical checks</span>→<span>3 · Repair & report</span></div><form id="detailsForm" class="panel form-card"><div class="form-grid">${field("Customer / site", "customer", draft.customer, "text", 'required maxlength="255"')}${select("Linked customer record", "customer_id", customers, draft.customer_id, "No confirmed link", editing || (workOrderId && draft.customer_id) ? "disabled" : "")}${field("Job reference", "reference", draft.reference, "text", 'maxlength="120"')}${select("Product", "product", ["French Door", "Window", "Residential Door", "Bifold", "Sliding Door", "Tilt & Turn"], draft.product)}${field("System / manufacturer", "system_name", draft.system_name)}<div class="wide">${area("Reported fault", "fault", draft.fault, "required")}</div><div class="wide">${select("Diagnostic module", "module", catalogue, draft.module || catalogue.find((m) => m.products.includes(draft.product))?.id)}</div></div><div class="notice">Select a customer record only when its identity is confirmed. Existing inspection links cannot be changed in this form. No measurements or test results are assumed.</div><button class="primary">Continue to physical checks →</button></form>`
+    `<div class="stepper"><span class="current">1 · Details</span>→<span>2 · Physical checks</span>→<span>3 · Repair & report</span></div><form id="detailsForm" class="panel form-card"><div class="form-grid">${field("Customer / site", "customer", draft.customer, "text", 'required maxlength="255"')}${select("Linked customer record", "customer_id", customers, draft.customer_id, "No confirmed link", editing || (workOrderId && draft.customer_id) ? "disabled" : "")}${field("Job reference", "reference", draft.reference, "text", 'maxlength="120"')}${select("Product", "product", ["French Door", "Window", "Residential Door", "Bifold", "Sliding Door", "Tilt & Turn"], draft.product)}${field("System / manufacturer", "system_name", draft.system_name)}<div class="wide">${area("Reported fault", "fault", draft.fault, "required")}</div><div class="wide">${select("Diagnostic module", "module", catalogue, draft.module || catalogue.find((m) => m.products.includes(draft.product))?.id)}</div></div><div class="notice">Select a customer record only when its identity is confirmed. Existing inspection links cannot be changed in this form. No measurements or test results are assumed.</div><div class="actions"><button type="button" data-action="save-inspection-draft">Save draft and exit</button><button class="primary">Continue to physical checks →</button></div></form>`
   );
 }
 function renderChecks() {
@@ -782,7 +902,7 @@ function renderChecks() {
       })
       .join(
         "",
-      )}</div><div class="notice">FenIQ working rules support your investigation. Check approved manufacturer documentation before applying system-specific tolerances.</div><div class="actions"><button type="button" data-go="inspection">← Back</button><button class="primary">Run diagnosis →</button></div></form>`
+      )}</div><div class="notice">FenIQ working rules support your investigation. Check approved manufacturer documentation before applying system-specific tolerances.</div><div class="actions"><button type="button" data-go="inspection">← Back</button><button type="button" data-action="save-inspection-draft">Save draft and exit</button><button class="primary">Run diagnosis →</button></div></form>`
   );
 }
 function renderResult() {
@@ -795,7 +915,7 @@ function renderResult() {
         : "From findings to a clear action",
       "Review the diagnosis and record what happened on site.",
     ) +
-    `<div class="stepper"><span>1 · Details</span>→<span>2 · Physical checks</span>→<span class="current">3 · Repair & report</span></div><div class="grid"><form id="resultForm" class="panel"><h3>Repair record</h3>${editing ? field("Customer / site", "customer", draft.customer, "text", "required") : ""}${area("Work carried out", "work_done", draft.work_done)}${field("Parts / further requirements", "parts_required", draft.parts_required)}${select("Outcome", "outcome", outcomes, draft.outcome || "Further Investigation")}${area("Engineer notes", "engineer_notes", draft.engineer_notes)}${field("Customer sign-off name", "signature", draft.signature)}<label class="check"><input name="approved_by_engineer" type="checkbox" ${draft.approved_by_engineer ? "checked" : ""}>I have reviewed this diagnosis and service record.</label><p class="muted">Commercial approvals for parts, remakes or chargeable work are requested separately from the saved inspection.</p><div class="actions">${!editing ? '<button type="button" data-go="checks">← Back to checks</button>' : ""}<button class="primary">${editing ? "Save changes" : "Save inspection"} →</button></div></form><div><div class="panel"><div class="eyebrow">DIAGNOSTIC FINDING</div><h2>${esc(d.title)}</h2><div class="result-score"><span class="score">${d.confidence}%</span><span class="muted">Rule score<br><small>Not a calibrated probability</small></span></div><div class="bar"><span style="width:${Number(d.confidence)}%"></span></div><ul class="detail-list">${d.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul><h3>Recommended action</h3><p>${esc(d.recommendation)}</p>${d.repair_steps?.length ? `<h3>Repair sequence</h3><ol class="detail-list">${d.repair_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}</div><div class="notice">Engineer review is required before acting on findings. Manufacturer values must be verified against approved sources.</div></div></div>`
+    `<div class="stepper"><span>1 · Details</span>→<span>2 · Physical checks</span>→<span class="current">3 · Repair & report</span></div><div class="grid"><form id="resultForm" class="panel"><h3>Repair record</h3>${editing ? field("Customer / site", "customer", draft.customer, "text", "required") : ""}${area("Work carried out", "work_done", draft.work_done)}${field("Parts / further requirements", "parts_required", draft.parts_required)}${select("Outcome", "outcome", outcomes, draft.outcome || "Further Investigation")}${area("Engineer notes", "engineer_notes", draft.engineer_notes)}${field("Customer sign-off name", "signature", draft.signature)}<label class="check"><input name="approved_by_engineer" type="checkbox" ${draft.approved_by_engineer ? "checked" : ""}>I have reviewed this diagnosis and service record.</label><p class="muted">Commercial approvals for parts, remakes or chargeable work are requested separately from the saved inspection.</p><div class="actions">${!editing ? '<button type="button" data-go="checks">← Back to checks</button><button type="button" data-action="save-inspection-draft">Save draft and exit</button>' : ""}<button class="primary">${editing ? "Save changes" : "Save inspection"} →</button></div></form><div><div class="panel"><div class="eyebrow">DIAGNOSTIC FINDING</div><h2>${esc(d.title)}</h2><div class="result-score"><span class="score">${d.confidence}%</span><span class="muted">Rule score<br><small>Not a calibrated probability</small></span></div><div class="bar"><span style="width:${Number(d.confidence)}%"></span></div><ul class="detail-list">${d.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul><h3>Recommended action</h3><p>${esc(d.recommendation)}</p>${d.repair_steps?.length ? `<h3>Repair sequence</h3><ol class="detail-list">${d.repair_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}</div><div class="notice">Engineer review is required before acting on findings. Manufacturer values must be verified against approved sources.</div></div></div>`
   );
 }
 async function loadPhotos(j) {
@@ -1016,7 +1136,13 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (b.dataset.customerInspect) {
-    startInspection(b.dataset.customerName, null, b.dataset.customerInspect);
+    await busy(b, () =>
+      beginInspection(
+        b.dataset.customerName,
+        null,
+        b.dataset.customerInspect,
+      ),
+    );
     return;
   }
   if (b.dataset.customerLinkCorrection) {
@@ -1062,7 +1188,10 @@ document.addEventListener("click", async (e) => {
         return;
       }
       const cs = await api("/api/customers");
-      startInspection(cs.find((c) => c.id === w.customer_id)?.name || "", w);
+      await beginInspection(
+        cs.find((c) => c.id === w.customer_id)?.name || "",
+        w,
+      );
     });
     return;
   }
@@ -1103,7 +1232,24 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (action === "new") {
-    startInspection();
+    await busy(b, beginInspection);
+    return;
+  }
+  if (action === "resume-draft") {
+    if ($("modal").open) $("modal").close();
+    await busy(b, resumeInspectionDraft);
+    return;
+  }
+  if (action === "save-inspection-draft") {
+    await busy(b, saveInspectionDraft);
+    return;
+  }
+  if (action === "discard-draft") {
+    if ($("modal").open) $("modal").close();
+    openModal(
+      "Discard unfinished inspection",
+      `<form id="discardDraftForm" data-version="${esc(b.dataset.version)}"><p>This permanently removes your saved draft. It does not delete a completed inspection.</p><div class="actions"><button type="button" data-action="close">Keep draft</button><button class="primary">Discard saved draft</button></div></form>`,
+    );
     return;
   }
   if (action === "retry") {
@@ -1202,6 +1348,18 @@ document.addEventListener("submit", async (e) => {
   const data = Object.fromEntries(new FormData(form));
   await busy(b, async () => {
     try {
+      if (form.id === "discardDraftForm") {
+        await api(
+          `/api/inspection-draft?expected_version=${form.dataset.version}`,
+          {
+            method: "DELETE",
+          },
+        );
+        draftVersion = 0;
+        $("modal").close();
+        await go("dashboard");
+        toast("Saved inspection draft discarded.");
+      }
       if (form.id === "detailsForm") {
         draft = { ...draft, ...data };
         await go("checks");
@@ -1234,6 +1392,7 @@ document.addEventListener("submit", async (e) => {
           evidence: diagnosis.evidence,
           recommendation: diagnosis.recommendation,
           work_order_id: workOrderId,
+          inspection_draft_version: draftVersion || null,
         };
         activeJob = await send(
           "/api/jobs" + (editing ? "/" + editing : ""),
@@ -1241,6 +1400,7 @@ document.addEventListener("submit", async (e) => {
           editing ? "PATCH" : "POST",
         );
         editing = activeJob.id;
+        draftVersion = 0;
         await go("report");
         toast(
           "Inspection saved. Add photos or record the repair outcome below.",

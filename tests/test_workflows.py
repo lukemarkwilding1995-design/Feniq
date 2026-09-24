@@ -54,6 +54,60 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('privacy.manage',self.client.get('/api/permissions',headers=self.admin).json()['permissions'])
         self.assertNotIn('privacy.manage',self.client.get('/api/permissions',headers=self.engineer).json()['permissions'])
 
+    def test_private_inspection_draft_resume_and_atomic_completion(self):
+        customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Fictional draft customer'}).json()
+        path='/api/inspection-draft'
+        empty=self.client.get(path,headers=self.engineer)
+        self.assertEqual(empty.status_code,200)
+        self.assertEqual(empty.headers['cache-control'],'private, no-store')
+        self.assertIsNone(empty.json())
+        outsider=self.client.post('/api/register-company',json={
+            'company_name':'Draft outsider','admin_name':'Other','email':'draft-outside@example.test',
+            'password':'strong-password'}).json()
+        outside_auth={'Authorization':'Bearer '+outsider['token']}
+        module=self.client.get('/api/diagnostics/catalogue',headers=self.engineer).json()[0]
+        payload={'customer':'Fictional draft customer','customer_id':customer['id'],
+                 'product':'Window','fault':'Stiff handle','module':module['id']}
+        self.assertEqual(self.client.put(path,headers=self.engineer,json={
+            'expected_version':0,'step':'details','payload':{**payload,'signature':'Not signed'}}).status_code,422)
+        self.assertEqual(self.client.put(path,headers=self.engineer,json={
+            'expected_version':0,'step':'details','payload':{**payload,'customer_id':'foreign'}}).status_code,404)
+        saved=self.client.put(path,headers=self.engineer,json={
+            'expected_version':0,'step':'details','payload':payload})
+        self.assertEqual(saved.status_code,200)
+        self.assertEqual(saved.json()['version'],1)
+        self.assertEqual(saved.json()['step'],'details')
+        self.assertIsNone(self.client.get(path,headers=outside_auth).json())
+        second=self.client.post('/api/join-company',json={
+            'invite_code':self.invite,'name':'Second engineer','email':'draft-second@example.test',
+            'password':'strong-password'}).json()
+        second_auth={'Authorization':'Bearer '+second['token']}
+        self.assertIsNone(self.client.get(path,headers=second_auth).json())
+        self.assertEqual(self.client.delete(path,headers=second_auth,params={'expected_version':1}).status_code,409)
+        self.assertEqual(self.client.put(path,headers=self.engineer,json={
+            'expected_version':0,'step':'checks','payload':payload}).status_code,409)
+        partial={**payload,'diagnostic_answers':{}}
+        updated=self.client.put(path,headers=self.engineer,json={
+            'expected_version':1,'step':'checks','payload':partial})
+        self.assertEqual(updated.status_code,200)
+        self.assertEqual(updated.json()['version'],2)
+        self.assertEqual(self.client.get(path,headers=self.engineer).json()['payload'],partial)
+        answers={check['key']:(True if check['type']=='bool' else 1 if check['type']=='number'
+                               else check['options'][0]) for check in module['checks']}
+        self.assertEqual(self.job(customer_id=customer['id'],module=module['id'],
+                                  diagnostic_answers=answers,inspection_draft_version=1).status_code,409)
+        self.assertEqual(self.client.get(path,headers=self.engineer).json()['version'],2)
+        completed=self.job(customer_id=customer['id'],module=module['id'],
+                           diagnostic_answers=answers,inspection_draft_version=2)
+        self.assertEqual(completed.status_code,200)
+        self.assertIsNone(self.client.get(path,headers=self.engineer).json())
+        self.assertEqual(self.client.get('/api/jobs',headers=self.engineer).json()[0]['id'],completed.json()['id'])
+        self.assertEqual(self.client.put(path,headers=self.engineer,json={
+            'expected_version':0,'step':'details','payload':payload}).status_code,200)
+        self.assertEqual(self.client.delete(path,headers=self.engineer,params={'expected_version':2}).status_code,409)
+        self.assertEqual(self.client.delete(path,headers=self.engineer,params={'expected_version':1}).status_code,200)
+        self.assertIsNone(self.client.get(path,headers=self.engineer).json())
+
     def test_privacy_request_register_is_scoped_and_records_decisions_only(self):
         customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Fictional customer'}).json()
         outsider=self.client.post('/api/register-company',json={'company_name':'Request outsider','admin_name':'Other','email':'requests-outside@example.com','password':'strong-password'}).json()

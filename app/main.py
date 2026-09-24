@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 from io import BytesIO
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func, update, delete
 from sqlalchemy.orm import Session
 
 from .db import Base, engine, get_db
@@ -27,6 +27,7 @@ from .audit import log as audit_log
 from .snapshots import capture as capture_snapshot, original as original_snapshot, serialise as snapshot_json
 from .migrations import require_current
 from .workflow_policy import scope as approval_scope, transition as check_transition
+from .inspection_drafts import InspectionDraft, register as register_inspection_drafts
 
 BASE = Path(__file__).resolve().parent
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(BASE/"uploads")))
@@ -101,6 +102,7 @@ class JobIn(BaseModel):
     engineer_notes: str=""
     signature: str=""
     approved_by_engineer: bool=False
+    inspection_draft_version: int | None=Field(default=None, ge=1)
 
 @app.post("/api/register-company")
 def register_company(data: CompanyRegister, db: Session = Depends(get_db)):
@@ -646,6 +648,15 @@ def create_job(data: JobIn, user: User = Depends(user_dep), db: Session = Depend
     if work_order:
         work_order.job_id=job.id
         work_order.status="In Progress"
+    if data.inspection_draft_version is not None:
+        cleared=db.execute(delete(InspectionDraft).where(
+            InspectionDraft.user_id==user.id,
+            InspectionDraft.company_id==user.company_id,
+            InspectionDraft.version==data.inspection_draft_version,
+        ))
+        if cleared.rowcount!=1:
+            raise HTTPException(409,"Inspection draft changed; reload it before saving")
+        audit_log(db,user.company_id,user.id,"inspection.draft_completed","inspection_draft",user.id)
     audit_log(db,user.company_id,user.id,"inspection.created","job",job.id)
     db.commit();db.refresh(job)
     return job_json(job, db)
@@ -995,6 +1006,8 @@ register_passports(app,user_dep,check_job)
 
 from .privacy_requests import register as register_privacy_requests
 register_privacy_requests(app,require_admin)
+
+register_inspection_drafts(app,user_dep)
 
 from .cases import register as register_cases
 register_cases(app,user_dep,check_job)
