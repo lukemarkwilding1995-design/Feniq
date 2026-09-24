@@ -28,6 +28,7 @@ from .snapshots import capture as capture_snapshot, original as original_snapsho
 from .migrations import require_current
 from .workflow_policy import scope as approval_scope, transition as check_transition
 from .inspection_drafts import InspectionDraft, register as register_inspection_drafts
+from .acceptance import CustomerAcceptance, register as register_acceptance
 
 BASE = Path(__file__).resolve().parent
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(BASE/"uploads")))
@@ -775,7 +776,7 @@ def delete_job(job_id: str, user: User = Depends(user_dep), db: Session = Depend
     from .passports import PassportInspection
     from .cases import TechnicalCase
     from .citations import Citation
-    for model in (DiagnosticSnapshot,LearningRecord,WorkOrder,ApprovalRequest,PassportInspection,TechnicalCase,Citation,JobCustomerLinkEvent):
+    for model in (DiagnosticSnapshot,LearningRecord,WorkOrder,ApprovalRequest,PassportInspection,TechnicalCase,Citation,JobCustomerLinkEvent,CustomerAcceptance):
         if db.scalar(select(model.id).where(model.job_id==job.id)):
             raise HTTPException(409,"This inspection has retained history or linked work. Deletion is blocked; archival is not yet available")
     photos=db.scalars(select(Photo).where(Photo.job_id==job.id)).all()
@@ -837,7 +838,10 @@ def pdf(job_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):
     from .citations import citation_records
     outcome_rows=outcomes.history(db,job)
     current_outcome=outcomes.serialise(outcome_rows[-1]) if outcome_rows else None
-    buf=build_report(job,job.engineer.name,photos,UPLOAD_DIR,citation_records(db,job),current_outcome)
+    from .acceptance import rows as acceptance_rows, serialise as acceptance_json, report_scope
+    acceptance_history=acceptance_rows(db,job)
+    current_acceptance=acceptance_json(acceptance_history[-1],report_scope(db,job)) if acceptance_history else None
+    buf=build_report(job,job.engineer.name,photos,UPLOAD_DIR,citation_records(db,job),current_outcome,current_acceptance)
     return StreamingResponse(buf,media_type="application/pdf",headers={"Content-Disposition":f'inline; filename="FenIQ-{job.id[:8]}.pdf"'})
 
 @app.get("/api/analytics")
@@ -1008,6 +1012,7 @@ from .privacy_requests import register as register_privacy_requests
 register_privacy_requests(app,require_admin)
 
 register_inspection_drafts(app,user_dep)
+register_acceptance(app,user_dep)
 
 from .cases import register as register_cases
 register_cases(app,user_dep,check_job)

@@ -223,3 +223,5 @@ Commercial approval requests and learning-record projections are now included as
 Retained learning reviews and second-stage dataset decisions now also participate in the customer-request inventory checksum as metadata counts, without copying decision reasons or prepared payloads into the Access draft. See `LEARNING_GOVERNANCE_SCOPE_CYCLE_2026-09-22.md`.
 
 Migration 0014 adds explicit, private inspection drafts that survive refresh/sign-in. A user saves and resumes one unfinished wizard, while completion consumes the matching draft atomically and recomputes the diagnosis. This is online explicit save, not autosave or offline sync. See `INSPECTION_DRAFT_CYCLE_2026-09-22.md`.
+
+Migration 0015 adds append-only customer acceptance revisions bound to the exact current report state. Engineer review is required first; corrections need reasons, and later report changes mark earlier acceptance historical. This is an engineer-witnessed record rather than a cryptographic customer signature or commercial authorisation. See `CUSTOMER_ACCEPTANCE_CYCLE_2026-09-24.md`.

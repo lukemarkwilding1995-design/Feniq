@@ -1014,6 +1014,35 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.get(p['url'],headers=self.engineer).status_code,200)
         self.assertEqual(self.client.get('/uploads/test.png').status_code,404)
 
+    def test_immutable_customer_acceptance_bound_to_report(self):
+        pending=self.job().json()
+        url='/api/jobs/'+pending['id']+'/acceptance-history'
+        payload={'expected_version':0,'status':'Accepted','customer_name':'Test Customer','customer_confirmed':True,'note':'Report reviewed'}
+        self.assertEqual(self.client.post(url,headers=self.engineer,json=payload).status_code,409)
+        self.client.patch('/api/jobs/'+pending['id']+'/approve',headers=self.engineer)
+        other=self.client.post('/api/register-company',json={'company_name':'Acceptance Other','admin_name':'Other','email':'acceptance-other@example.com','password':'strong-password'}).json()
+        self.assertEqual(self.client.get(url,headers={'Authorization':'Bearer '+other['token']}).status_code,403)
+        first=self.client.post(url,headers=self.engineer,json=payload)
+        self.assertEqual(first.status_code,200)
+        self.assertTrue(first.json()['report_current'])
+        self.assertEqual(self.client.post(url,headers=self.engineer,json=payload).status_code,409)
+        correction={**payload,'expected_version':1,'status':'Declined'}
+        self.assertEqual(self.client.post(url,headers=self.engineer,json=correction).status_code,422)
+        outcome={'confirmed_diagnosis':'Engineer finding','actual_repair':'Controlled adjustment','resolved':False,'engineer_rating':4,'verification_checks':'Customer requested further review',**self.verification(pending['id'])}
+        self.assertEqual(self.client.post('/api/jobs/'+pending['id']+'/learning',headers=self.engineer,json=outcome).status_code,200)
+        history=self.client.get(url,headers=self.engineer)
+        self.assertEqual(history.headers['cache-control'],'private, no-store')
+        self.assertFalse(history.json()[-1]['report_current'])
+        correction['change_reason']='Customer reconsidered after final checks'
+        latest=self.client.post(url,headers=self.engineer,json=correction).json()
+        self.assertEqual(latest['version'],2)
+        self.assertTrue(latest['integrity_valid'])
+        report=self.client.get('/api/jobs/'+pending['id']+'/report.pdf',headers=self.engineer)
+        from pypdf import PdfReader
+        text=' '.join(p.extract_text() for p in PdfReader(BytesIO(report.content)).pages)
+        self.assertIn('Customer acceptance',text)
+        self.assertIn('Declined',text)
+
     def test_diagnostic_validation(self):
         self.assertEqual(self.client.post('/api/diagnostics/run',headers=self.engineer,json={'module_id':'french_door_clearance','answers':{}}).status_code,422)
         self.assertEqual(self.client.post('/api/diagnostics/run',headers=self.engineer,json={'module_id':'missing','answers':{}}).status_code,404)

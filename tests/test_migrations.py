@@ -12,11 +12,11 @@ class MigrationTests(unittest.TestCase):
         self.engine.dispose()
 
     def test_empty_database_and_repeat_upgrade(self):
-        self.assertEqual(upgrade(self.engine), '0014_inspection_drafts')
-        self.assertEqual(upgrade(self.engine), '0014_inspection_drafts')
+        self.assertEqual(upgrade(self.engine), '0015_customer_acceptance')
+        self.assertEqual(upgrade(self.engine), '0015_customer_acceptance')
         require_current(self.engine)
         with self.engine.connect() as connection:
-            self.assertEqual(connection.execute(text('SELECT count(*) FROM feniq_schema_revisions')).scalar(), 14)
+            self.assertEqual(connection.execute(text('SELECT count(*) FROM feniq_schema_revisions')).scalar(), 15)
             self.assertIn('customer_id', {column['name'] for column in inspect(connection).get_columns('jobs')})
             self.assertTrue(inspect(connection).has_table('job_customer_link_events'))
 

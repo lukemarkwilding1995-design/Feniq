@@ -1,0 +1,7 @@
+[
+  "CREATE TABLE customer_acceptances (id VARCHAR(64) NOT NULL PRIMARY KEY, job_id VARCHAR(64) NOT NULL REFERENCES jobs(id), company_id INTEGER NOT NULL REFERENCES companies(id), version INTEGER NOT NULL, actor_id INTEGER NOT NULL REFERENCES users(id), created_at DATETIME NOT NULL, report_sha256 VARCHAR(64) NOT NULL, payload_json TEXT NOT NULL, sha256 VARCHAR(64) NOT NULL, CONSTRAINT uq_customer_acceptance_version UNIQUE (job_id, version))",
+  "CREATE INDEX ix_customer_acceptances_job_id ON customer_acceptances (job_id)",
+  "CREATE INDEX ix_customer_acceptances_company_id ON customer_acceptances (company_id)",
+  "CREATE TRIGGER customer_acceptances_no_update BEFORE UPDATE ON customer_acceptances BEGIN SELECT RAISE(ABORT, 'Customer acceptance history is immutable'); END",
+  "CREATE TRIGGER customer_acceptances_no_delete BEFORE DELETE ON customer_acceptances BEGIN SELECT RAISE(ABORT, 'Customer acceptance history is immutable'); END"
+]

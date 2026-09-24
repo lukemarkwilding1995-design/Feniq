@@ -10,7 +10,7 @@ from reportlab.lib.units import mm
 from PIL import Image as PILImage
 
 
-def build_report(job, engineer_name, photos, upload_dir: Path, citations=None, outcome=None):
+def build_report(job, engineer_name, photos, upload_dir: Path, citations=None, outcome=None, acceptance=None):
     buf=BytesIO()
     ink=colors.HexColor('#163e31')
     styles=getSampleStyleSheet()
@@ -41,7 +41,12 @@ def build_report(job, engineer_name, photos, upload_dir: Path, citations=None, o
                 story.append(KeepTogether([Image(str(path),width=width*scale,height=height*scale,hAlign='LEFT'),Spacer(1,2*mm),text(f'{p.phase.title()} - {p.original_name}',small),Spacer(1,4*mm)]))
             except (OSError,ValueError):
                 story.append(text('Photo could not be included.',small))
-    story.extend([Paragraph('Customer sign-off',heading),text(job.signature or 'Not signed')])
+    story.extend([Paragraph('Customer acceptance',heading)])
+    if acceptance:
+        payload=acceptance['payload']
+        story.extend([text(f"{payload['status']} | {payload.get('customer_name') or 'Name not recorded'} | Recorded {acceptance['created_at'].strftime('%d %b %Y %H:%M')}"),text(payload.get('note') or 'No note'),text(f"Acceptance revision {acceptance['version']} | {'Current report state' if acceptance['report_current'] else 'Historical report state'}",small),text('Report state SHA-256: '+acceptance['report_sha256'],small)])
+    else:
+        story.append(text(job.signature or 'No governed acceptance recorded'))
     if not job.approved_by_engineer:
         story.extend([Spacer(1,3*mm),text('Diagnosis has not yet been marked as engineer reviewed.',small)])
     if outcome:
