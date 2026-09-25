@@ -143,7 +143,34 @@ def me(user: User = Depends(user_dep)):
 @app.get("/api/company")
 def company(user: User = Depends(user_dep), db: Session = Depends(get_db)):
     c=db.get(Company,user.company_id)
-    return {"id":c.id,"name":c.name,"invite_code":c.invite_code if user.role=="admin" else None}
+    return {"id":c.id,"name":c.name,"invite_code":c.invite_code if user.role=="admin" else None,
+            "report_name":c.report_name or c.name,"report_contact":c.report_contact,
+            "report_accent":c.report_accent or "#163E31"}
+
+
+class CompanyReportBrandingIn(BaseModel):
+    report_name: str = Field(min_length=1, max_length=180)
+    report_contact: str = Field(default="", max_length=500)
+    report_accent: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+@app.patch("/api/company/report-branding")
+def update_company_report_branding(data: CompanyReportBrandingIn, admin: User = Depends(require_admin),
+                                   db: Session = Depends(get_db)):
+    company = db.get(Company, admin.company_id)
+    name = data.report_name.strip()
+    if not name:
+        raise HTTPException(422, "Report name is required")
+    company.report_name = name
+    company.report_contact = data.report_contact.strip()
+    company.report_accent = data.report_accent.upper()
+    audit_log(db, admin.company_id, admin.id, "company.report_branding_updated", "company", company.id,
+              {"report_name": name, "report_accent": company.report_accent,
+               "contact_present": bool(company.report_contact)})
+    db.commit()
+    return {"id":company.id,"name":company.name,"invite_code":company.invite_code,
+            "report_name":company.report_name,"report_contact":company.report_contact,
+            "report_accent":company.report_accent}
 
 @app.get("/api/company/users")
 def company_users(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
@@ -842,7 +869,8 @@ def pdf(job_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):
     from .acceptance import rows as acceptance_rows, serialise as acceptance_json, report_scope
     acceptance_history=acceptance_rows(db,job)
     current_acceptance=acceptance_json(acceptance_history[-1],report_scope(db,job)) if acceptance_history else None
-    buf=build_report(job,job.engineer.name,photos,UPLOAD_DIR,citation_records(db,job),current_outcome,current_acceptance)
+    buf=build_report(job,job.engineer.name,photos,UPLOAD_DIR,citation_records(db,job),current_outcome,current_acceptance,
+                     job.engineer.company)
     pdf_sha256=hashlib.sha256(buf.getvalue()).hexdigest()
     audit_log(db,user.company_id,user.id,"inspection.report_downloaded","job",job.id,{"pdf_sha256":pdf_sha256})
     db.commit()

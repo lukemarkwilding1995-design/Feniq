@@ -1,0 +1,5 @@
+[
+  "ALTER TABLE companies ADD COLUMN report_name VARCHAR(180) NOT NULL DEFAULT ''",
+  "ALTER TABLE companies ADD COLUMN report_contact VARCHAR(500) NOT NULL DEFAULT ''",
+  "ALTER TABLE companies ADD COLUMN report_accent VARCHAR(7) NOT NULL DEFAULT ''"
+]

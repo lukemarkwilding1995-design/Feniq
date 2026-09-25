@@ -1106,6 +1106,39 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotEqual(second.json()['source_sha256'],first.json()['source_sha256'])
         self.assertEqual(self.client.get(url+'/1/pdf',headers=self.engineer).content,exact.content)
 
+    def test_company_report_branding_is_admin_scoped_and_report_bound(self):
+        job=self.job(reference='BRAND-01',approved_by_engineer=True).json()
+        revisions='/api/jobs/'+job['id']+'/report-revisions'
+        acceptance_url='/api/jobs/'+job['id']+'/acceptance-history'
+        acceptance={'expected_version':0,'status':'Accepted','customer_name':'Test Customer',
+                    'customer_confirmed':True,'note':'Reviewed before branding change'}
+        self.assertEqual(self.client.post(acceptance_url,headers=self.engineer,json=acceptance).status_code,200)
+        first=self.client.post(revisions,headers=self.engineer,json={'expected_version':0}).json()
+        branding={'report_name':'Test Windows Technical','report_contact':'01234 567890 · service@example.test',
+                  'report_accent':'#245A48'}
+        self.assertEqual(self.client.patch('/api/company/report-branding',headers=self.engineer,
+                                           json=branding).status_code,403)
+        self.assertEqual(self.client.patch('/api/company/report-branding',headers=self.admin,
+                                           json={**branding,'report_accent':'green'}).status_code,422)
+        updated=self.client.patch('/api/company/report-branding',headers=self.admin,json=branding)
+        self.assertEqual(updated.status_code,200)
+        self.assertEqual(updated.json()['report_accent'],'#245A48')
+        company=self.client.get('/api/company',headers=self.engineer).json()
+        self.assertEqual(company['report_name'],'Test Windows Technical')
+        self.assertIsNone(company['invite_code'])
+        self.assertFalse(self.client.get(acceptance_url,headers=self.engineer).json()[0]['report_current'])
+        self.assertFalse(self.client.get(revisions,headers=self.engineer).json()[0]['source_current'])
+        report=self.client.get('/api/jobs/'+job['id']+'/report.pdf',headers=self.engineer)
+        from pypdf import PdfReader
+        report_text=' '.join(page.extract_text() for page in PdfReader(BytesIO(report.content)).pages)
+        self.assertIn('Test Windows Technical',report_text)
+        self.assertIn('Powered by FenIQ',report_text)
+        self.assertIn('service@example.test',report_text)
+        second=self.client.post(revisions,headers=self.engineer,json={'expected_version':1}).json()
+        self.assertNotEqual(second['source_sha256'],first['source_sha256'])
+        audit=self.client.get('/api/audit',headers=self.admin).json()
+        self.assertTrue(any(row['action']=='company.report_branding_updated' for row in audit))
+
     def test_diagnostic_validation(self):
         self.assertEqual(self.client.post('/api/diagnostics/run',headers=self.engineer,json={'module_id':'french_door_clearance','answers':{}}).status_code,422)
         self.assertEqual(self.client.post('/api/diagnostics/run',headers=self.engineer,json={'module_id':'missing','answers':{}}).status_code,404)

@@ -14,6 +14,7 @@ The localhost demo launcher runs pending migrations before starting. Back up exi
 - `0001_baseline`: frozen original schema. Creates fresh tables or adopts legacy tables after checking their column names. Does not reconstruct or overwrite existing records. Full legacy constraint/type reconciliation remains a production prerequisite.
 - `0002_snapshots`: adds `diagnostic_snapshots`, company/job indexes and database triggers rejecting UPDATE and DELETE. No existing inspection fields are altered.
 - `0003_approval_scope`: binds new commercial requests to a digest of the current technical findings. Legacy requests retain an empty digest and cannot be approved without being replaced by a new request. Existing decisions remain historical records.
+- `0017_report_branding`: adds bounded company PDF identity fields. Existing companies fall back to their company name and the FenIQ default accent; no historical report bytes are changed.
 
 The migration ledger records canonical DDL checksums, independent of JSON whitespace/line endings. SQLite uses an immediate transaction; PostgreSQL uses an advisory transaction lock. Run one migration process per deployment with application writers stopped. Newer databases, changed applied migration content and unexpected legacy columns cause a failure. Migrations are forward-only: recovery is by restoring the pre-upgrade backup, not deleting snapshot history. Never edit an applied migration to implement a later feature.
 

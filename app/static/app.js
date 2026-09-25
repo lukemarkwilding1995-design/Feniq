@@ -582,6 +582,11 @@ const pages = {
               "Saved changes create an audit record for company admins.",
             )
       }</div></div>` +
+      `<section class="panel" style="margin-top:22px"><div class="panel-head"><h3>Service report identity</h3>${badge("Powered by FenIQ")}</div>${
+        user.role === "admin"
+          ? `<p class="muted">Set the trading identity shown on new PDF reports. A branding change makes earlier retained PDFs historical without altering them.</p><form id="reportBrandingForm"><div class="form-grid">${field("Report name", "report_name", c.report_name, "text", 'required maxlength="180"')}${field("Accent colour", "report_accent", c.report_accent, "color", 'required pattern="#[0-9A-Fa-f]{6}"')}</div>${area("Business contact line", "report_contact", c.report_contact, 'maxlength="500" placeholder="Phone · email · website · registered office"')}<p class="notice">Reports retain FenIQ attribution and all evidence, confidence and approval warnings.</p><p class="error form-error" role="alert"></p><button class="primary">Save report identity</button></form>`
+          : `<p><b>${esc(c.report_name)}</b></p><p class="muted">${esc(c.report_contact || "No report contact line configured")}</p>`
+      }</section>` +
       (user.role === "admin" && us.some((u) => u.role === "engineer")
         ? `<section class="panel" style="margin-top:22px"><h3>Admin access</h3><p class="muted">Grant a trusted team member company-wide admin permissions so a different admin can make the second research decision.</p>${us
             .filter((u) => u.role === "engineer")
@@ -1585,6 +1590,11 @@ document.addEventListener("submit", async (e) => {
         $("modal").close();
         await go("company");
         toast("Company admin access granted");
+      }
+      if (form.id === "reportBrandingForm") {
+        await send("/api/company/report-branding", data, "PATCH");
+        await go("company");
+        toast("Service report identity saved");
       }
       if (form.id === "privacyCreateForm") {
         await send("/api/privacy-requests", data);

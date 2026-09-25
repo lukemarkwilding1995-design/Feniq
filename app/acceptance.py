@@ -35,6 +35,11 @@ class AcceptanceIn(BaseModel):
 def report_scope(db,job):
     outcome=db.scalar(select(OutcomeRevision).where(OutcomeRevision.job_id==job.id).order_by(OutcomeRevision.version.desc()))
     payload={key:getattr(job,key) for key in ("customer","reference","product","system_name","fault","diagnosis","confidence","evidence_json","recommendation","work_done","parts_required","outcome","engineer_notes","signature","approved_by_engineer","citation_version")}
+    payload["company_branding"]={
+        "report_name":job.engineer.company.report_name or job.engineer.company.name,
+        "report_contact":job.engineer.company.report_contact,
+        "report_accent":job.engineer.company.report_accent or "#163E31",
+    }
     payload["outcome_sha256"]=outcome.sha256 if outcome else None
     photos=db.scalars(select(Photo).where(Photo.job_id==job.id).order_by(Photo.id)).all()
     payload["photos"]=[{"id":photo.id,"filename":photo.filename,"original_name":photo.original_name,"phase":photo.phase,"created_at":photo.created_at.isoformat()} for photo in photos]

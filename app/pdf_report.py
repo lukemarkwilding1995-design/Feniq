@@ -10,9 +10,13 @@ from reportlab.lib.units import mm
 from PIL import Image as PILImage
 
 
-def build_report(job, engineer_name, photos, upload_dir: Path, citations=None, outcome=None, acceptance=None):
+def build_report(job, engineer_name, photos, upload_dir: Path, citations=None, outcome=None, acceptance=None,
+                 company=None):
     buf=BytesIO()
-    ink=colors.HexColor('#163e31')
+    brand_name=(getattr(company,'report_name','') or getattr(company,'name','') or 'FenIQ').strip()
+    brand_contact=(getattr(company,'report_contact','') or '').strip()
+    brand_accent=getattr(company,'report_accent','') or '#163E31'
+    ink=colors.HexColor(brand_accent)
     styles=getSampleStyleSheet()
     body=ParagraphStyle('Body',parent=styles['BodyText'],fontSize=9,leading=13,textColor=colors.HexColor('#34483e'))
     heading=ParagraphStyle('Section',parent=styles['Heading3'],fontSize=11,leading=14,textColor=ink,spaceBefore=12,spaceAfter=6)
@@ -20,8 +24,11 @@ def build_report(job, engineer_name, photos, upload_dir: Path, citations=None, o
     small=ParagraphStyle('Small',parent=body,fontSize=8,leading=11,textColor=colors.HexColor('#6e7c72'))
     def text(value,style=body):
         return Paragraph(escape(str(value or 'Not recorded')).replace('\n','<br/>'),style)
-    doc=SimpleDocTemplate(buf,pagesize=A4,rightMargin=18*mm,leftMargin=18*mm,topMargin=17*mm,bottomMargin=19*mm,title='FenIQ Service Report',author='FenIQ')
-    story=[Paragraph('FenIQ',title),text('FIELD INTELLIGENCE / SERVICE REPORT',small),Spacer(1,6*mm)]
+    doc=SimpleDocTemplate(buf,pagesize=A4,rightMargin=18*mm,leftMargin=18*mm,topMargin=17*mm,bottomMargin=19*mm,title=f'{brand_name} Service Report',author=brand_name)
+    story=[Paragraph(escape(brand_name),title),text('Powered by FenIQ | FIELD INTELLIGENCE / SERVICE REPORT',small)]
+    if brand_contact:
+        story.append(text(brand_contact,small))
+    story.append(Spacer(1,6*mm))
     meta=[('Customer / site',job.customer,'Reference',job.reference),('Product',job.product,'System',job.system_name),('Engineer',engineer_name,'Outcome',job.outcome),('Inspection date',job.created_at.strftime('%d %b %Y'),'Review','Engineer reviewed' if job.approved_by_engineer else 'Review required')]
     rows=[[text(k,small),text(v),text(k2,small),text(v2)] for k,v,k2,v2 in meta]
     table=Table(rows,colWidths=[28*mm,59*mm,25*mm,62*mm])
@@ -79,7 +86,7 @@ def build_report(job, engineer_name, photos, upload_dir: Path, citations=None, o
         story.append(text('Reference approval does not verify every specification or authorise remedial work. Historical citations are retained after a source review changes.',small))
     def footer(canvas,doc):
         canvas.saveState();canvas.setFont('Helvetica',8);canvas.setFillColor(colors.HexColor('#6e7c72'))
-        canvas.drawString(18*mm,11*mm,'FenIQ | '+job.id[:8]);canvas.drawRightString(192*mm,11*mm,f'Page {doc.page}');canvas.restoreState()
+        canvas.drawString(18*mm,11*mm,f'{brand_name} | FenIQ | '+job.id[:8]);canvas.drawRightString(192*mm,11*mm,f'Page {doc.page}');canvas.restoreState()
     doc.build(story,onFirstPage=footer,onLaterPages=footer)
     buf.seek(0)
     return buf

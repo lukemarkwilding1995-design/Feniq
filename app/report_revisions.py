@@ -65,6 +65,11 @@ def current_report(db: Session, job: Job, upload_dir: Path):
     acceptances = acceptance_rows(db, job)
     acceptance = acceptance_json(acceptances[-1], acceptance_report_scope(db, job)) if acceptances else None
     source = {
+        "company_branding": {
+            "report_name": job.engineer.company.report_name or job.engineer.company.name,
+            "report_contact": job.engineer.company.report_contact,
+            "report_accent": job.engineer.company.report_accent or "#163E31",
+        },
         "job": {
             key: getattr(job, key)
             for key in (
@@ -107,7 +112,8 @@ def current_report(db: Session, job: Job, upload_dir: Path):
     }
     encoded = json.dumps(source, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     source_sha256 = hashlib.sha256(encoded.encode()).hexdigest()
-    report = build_report(job, job.engineer.name, photos, upload_dir, citations, outcome, acceptance).getvalue()
+    report = build_report(job, job.engineer.name, photos, upload_dir, citations, outcome, acceptance,
+                          job.engineer.company).getvalue()
     return report, source_sha256
 
 

@@ -11,6 +11,9 @@ class Company(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(180), unique=True, index=True)
     invite_code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    report_name: Mapped[str] = mapped_column(String(180), default="")
+    report_contact: Mapped[str] = mapped_column(String(500), default="")
+    report_accent: Mapped[str] = mapped_column(String(7), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 class User(Base):
