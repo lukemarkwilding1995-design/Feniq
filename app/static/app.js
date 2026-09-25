@@ -629,7 +629,14 @@ const pages = {
   },
   async report() {
     const j = activeJob;
-    const [snapshot, outcomes, customers, linkHistory, acceptances] = await Promise.all([
+    const [
+      snapshot,
+      outcomes,
+      customers,
+      linkHistory,
+      acceptances,
+      reportRevisions,
+    ] = await Promise.all([
       api(`/api/jobs/${j.id}/diagnostic-snapshot`),
       api(`/api/jobs/${j.id}/outcome-history`),
       user.role === "admin" ? api("/api/customers") : [],
@@ -637,6 +644,7 @@ const pages = {
         ? api(`/api/jobs/${j.id}/customer-link-history`)
         : [],
       api(`/api/jobs/${j.id}/acceptance-history`),
+      api(`/api/jobs/${j.id}/report-revisions`),
     ]);
     const customerName = (id) =>
       customers.find((c) => c.id === id)?.name || id || "No direct link";
@@ -653,6 +661,7 @@ const pages = {
       snapshotPanel(snapshot) +
       outcomeSummary(outcomes) +
       acceptanceSummary(acceptances) +
+      reportRevisionSummary(reportRevisions) +
       (await citationPanel(j)) +
       `<article class="panel"><div class="panel-head"><h2>FenIQ <small> / SERVICE REPORT</small></h2>${badge(j.approved_by_engineer ? "Engineer approved" : "Review required")}</div><div class="report-meta">${[
         ["Customer / site", j.customer],
@@ -682,7 +691,7 @@ const pages = {
         )
         .join(
           "",
-        )}<div class="notice">${j.confidence}% rule score. Decision support, not a calibrated probability or a manufacturer specification.</div><h3>Photo evidence</h3><div id="reportPhotos" class="photos">${j.photos.length ? "Loading photos…" : "No photos attached yet."}</div><form id="photoForm" style="margin-top:20px"><div class="form-grid">${select("Evidence phase", "phase", ["before", "after"])}<label>JPG, PNG or WEBP<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label></div><button>Add photo</button></form>${config.vision_enabled && j.photos.length ? '<button data-action="analyse">Analyse first photo</button>' : ""}</article><div class="actions"><button class="primary" data-action="learning-form">Record repair outcome</button><button data-action="acceptance-form">Record customer acceptance</button>${outcomes.at(-1)?.payload.anonymised_for_learning === true ? `<button data-withdraw-consent="${esc(j.id)}" data-outcome-version="${outcomes.at(-1).version}" data-outcome-sha="${esc(outcomes.at(-1).sha256)}">Withdraw learning consent</button>` : ""}<button data-action="approval-form">Request commercial approval</button>${!j.approved_by_engineer ? '<button data-action="approve-job">Mark engineer reviewed</button>' : ""}</div>`
+        )}<div class="notice">${j.confidence}% rule score. Decision support, not a calibrated probability or a manufacturer specification.</div><h3>Photo evidence</h3><div id="reportPhotos" class="photos">${j.photos.length ? "Loading photos…" : "No photos attached yet."}</div><form id="photoForm" style="margin-top:20px"><div class="form-grid">${select("Evidence phase", "phase", ["before", "after"])}<label>JPG, PNG or WEBP<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label></div><button>Add photo</button></form>${config.vision_enabled && j.photos.length ? '<button data-action="analyse">Analyse first photo</button>' : ""}</article><div class="actions"><button class="primary" data-action="retain-report">Retain report revision</button><button data-action="learning-form">Record repair outcome</button><button data-action="acceptance-form">Record customer acceptance</button>${outcomes.at(-1)?.payload.anonymised_for_learning === true ? `<button data-withdraw-consent="${esc(j.id)}" data-outcome-version="${outcomes.at(-1).version}" data-outcome-sha="${esc(outcomes.at(-1).sha256)}">Withdraw learning consent</button>` : ""}<button data-action="approval-form">Request commercial approval</button>${!j.approved_by_engineer ? '<button data-action="approve-job">Mark engineer reviewed</button>' : ""}</div>`
     );
   },
 };
@@ -699,8 +708,21 @@ function outcomeSummary(rows) {
 function acceptanceSummary(rows) {
   if (!rows.length)
     return '<section class="panel" style="margin-bottom:20px"><h3>Customer acceptance</h3><p>No governed customer acceptance has been recorded.</p><p class="muted">The legacy sign-off name remains in the inspection, but it is not a timestamped acceptance record.</p></section>';
-  const row = rows.at(-1), p = row.payload;
+  const row = rows.at(-1),
+    p = row.payload;
   return `<section class="panel" style="margin-bottom:20px"><div class="panel-head"><h3>Customer acceptance</h3>${badge(p.status)}</div><p><b>${esc(p.customer_name || "Name not recorded")}</b> · ${date(row.created_at)}</p><p>${esc(p.note || "No note")}</p>${p.change_reason ? `<p><b>Correction reason:</b> ${esc(p.change_reason)}</p>` : ""}<p class="${row.report_current ? "muted" : "notice"}">${row.report_current ? "Bound to the current report state." : "Historical acceptance: the report changed after this was recorded."}</p><small>Retained revision ${row.version} of ${rows.length} · ${row.integrity_valid ? "Integrity checked" : "Integrity check failed"}<br>Report state ${esc(row.report_sha256.slice(0, 16))}…</small></section>`;
+}
+function reportRevisionSummary(rows) {
+  if (!rows.length)
+    return '<section class="panel" style="margin-bottom:20px"><h3>Retained report revisions</h3><p>No exact PDF revision has been retained.</p><p class="muted">Retaining a revision preserves the report bytes and checksum for later re-download.</p></section>';
+  return `<section class="panel" style="margin-bottom:20px"><div class="panel-head"><h3>Retained report revisions</h3>${badge(`${rows.length} retained`)}</div>${rows
+    .slice()
+    .reverse()
+    .map(
+      (row) =>
+        `<div class="visit"><div><b>Revision ${row.version}</b> · ${date(row.created_at)}<br><small>${row.source_current ? "Current report state" : "Historical report state"} · ${row.integrity_valid ? "Integrity checked" : "Integrity check failed"}<br>PDF SHA-256 ${esc(row.pdf_sha256.slice(0, 16))}… · ${Number(row.byte_count).toLocaleString()} bytes</small></div><button data-report-revision="${row.version}">Download exact PDF</button></div>`,
+    )
+    .join("")}</section>`;
 }
 function snapshotPanel(snapshot) {
   if (!snapshot)
@@ -1145,11 +1167,7 @@ document.addEventListener("click", async (e) => {
   }
   if (b.dataset.customerInspect) {
     await busy(b, () =>
-      beginInspection(
-        b.dataset.customerName,
-        null,
-        b.dataset.customerInspect,
-      ),
+      beginInspection(b.dataset.customerName, null, b.dataset.customerInspect),
     );
     return;
   }
@@ -1233,6 +1251,22 @@ document.addEventListener("click", async (e) => {
     );
     return;
   }
+  if (b.dataset.reportRevision) {
+    await busy(b, async () => {
+      const version = Number(b.dataset.reportRevision),
+        response = await api(
+          `/api/jobs/${activeJob.id}/report-revisions/${version}/pdf`,
+        ),
+        url = URL.createObjectURL(await response.blob()),
+        link = document.createElement("a");
+      link.href = url;
+      link.download = `FenIQ-${activeJob.reference || activeJob.id.slice(0, 8)}-r${version}.pdf`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      toast(`Retained report revision ${version} downloaded`);
+    });
+    return;
+  }
   const action = b.dataset.action;
   if (!action) return;
   if (action === "close") {
@@ -1294,7 +1328,8 @@ document.addEventListener("click", async (e) => {
   }
   if (action === "acceptance-form") {
     await busy(b, async () => {
-      const rows = await api(`/api/jobs/${activeJob.id}/acceptance-history`), latest = rows.at(-1);
+      const rows = await api(`/api/jobs/${activeJob.id}/acceptance-history`),
+        latest = rows.at(-1);
       openModal(
         "Record customer acceptance",
         `<form id="acceptanceForm"><input type="hidden" name="expected_version" value="${rows.length}">${select("Customer decision", "status", ["Accepted", "Declined", "Customer unavailable"], latest?.payload.status || "Accepted")}${field("Customer name", "customer_name", latest?.payload.customer_name || activeJob.signature, "text", 'maxlength="255"')}${area("Acceptance note", "note", latest?.payload.note || "", 'maxlength="2000"')}${rows.length ? area("Reason for correcting the previous record", "change_reason", "", 'required minlength="5" maxlength="2000"') : ""}<label class="check"><input name="customer_confirmed" type="checkbox">The named customer reviewed the report and personally confirmed this decision.</label><p class="notice">This records the customer's decision about this service report. It does not authorise chargeable work, parts or remakes.</p><p class="error form-error" role="alert"></p><button class="primary">Retain acceptance record</button></form>`,
@@ -1327,6 +1362,17 @@ document.addEventListener("click", async (e) => {
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
       toast("Report downloaded");
+    });
+    return;
+  }
+  if (action === "retain-report") {
+    await busy(b, async () => {
+      const rows = await api(`/api/jobs/${activeJob.id}/report-revisions`);
+      await send(`/api/jobs/${activeJob.id}/report-revisions`, {
+        expected_version: rows.length,
+      });
+      await showReport(activeJob.id);
+      toast("Exact report revision retained");
     });
     return;
   }

@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 import json
+import hashlib
 from io import BytesIO
 from pathlib import Path
 
@@ -250,15 +251,28 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotEqual(after_approval['inventory_sha256'],after_learning['inventory_sha256'])
         self.assertEqual(after_learning['inventory']['inspections'][0]['learning_records']['count'],1)
         self.assertNotIn('Fictional commercial decision',json.dumps(after_learning))
+        self.assertEqual(self.client.patch('/api/jobs/'+job['id']+'/approve',headers=self.engineer).status_code,200)
+        self.assertEqual(self.client.post('/api/jobs/'+job['id']+'/acceptance-history',headers=self.engineer,json={
+            'expected_version':0,'status':'Accepted','customer_name':'Fictional operations customer',
+            'customer_confirmed':True,'note':'Fictional report reviewed'}).status_code,200)
+        self.assertEqual(self.client.post('/api/jobs/'+job['id']+'/report-revisions',headers=self.engineer,
+                                          json={'expected_version':0}).status_code,200)
+        after_artifacts=self.client.get(url+'/inventory',headers=self.admin).json()
+        artifact_scope=after_artifacts['inventory']['inspections'][0]
+        self.assertNotEqual(after_learning['inventory_sha256'],after_artifacts['inventory_sha256'])
+        self.assertEqual(artifact_scope['customer_acceptances']['count'],1)
+        self.assertEqual(artifact_scope['report_revisions']['count'],1)
         self.assertEqual(self.client.patch(url,headers=self.admin,json={
             'version':1,'status':'Investigating','note':'Checking fictional operational scope'}).status_code,200)
         self.assertEqual(self.client.post(url+'/scope-review',headers=self.admin,json={
-            'version':2,'inventory_sha256':after_learning['inventory_sha256'],
+            'version':2,'inventory_sha256':after_artifacts['inventory_sha256'],
             'identity_checked':True,'linked_records_checked':True,'unlinked_records_reviewed':True,
             'note':'Reviewed fictional operations data separately'}).status_code,200)
         draft=self.client.get(url+'/access-preview',headers=self.admin).json()
         self.assertNotIn('commercial_approvals',draft)
         self.assertNotIn('learning_records',draft)
+        self.assertNotIn('customer_acceptances',draft)
+        self.assertNotIn('report_revisions',draft)
         self.assertNotIn('Fictional commercial decision',json.dumps(draft))
 
     def test_inspection_customer_link_is_explicit_and_company_scoped(self):
@@ -1042,6 +1056,39 @@ class WorkflowTests(unittest.TestCase):
         text=' '.join(p.extract_text() for p in PdfReader(BytesIO(report.content)).pages)
         self.assertIn('Customer acceptance',text)
         self.assertIn('Declined',text)
+
+    def test_immutable_exact_pdf_report_revisions(self):
+        job=self.job(reference='REPORT-REV-01').json()
+        url='/api/jobs/'+job['id']+'/report-revisions'
+        self.assertEqual(self.client.post(url,headers=self.engineer,json={'expected_version':0}).status_code,409)
+        self.client.patch('/api/jobs/'+job['id']+'/approve',headers=self.engineer)
+        outsider=self.client.post('/api/register-company',json={
+            'company_name':'Report outsider','admin_name':'Other','email':'report-outside@example.test',
+            'password':'strong-password'}).json()
+        outside_auth={'Authorization':'Bearer '+outsider['token']}
+        self.assertEqual(self.client.get(url,headers=outside_auth).status_code,403)
+        first=self.client.post(url,headers=self.engineer,json={'expected_version':0})
+        self.assertEqual(first.status_code,200)
+        self.assertTrue(first.json()['source_current'])
+        self.assertTrue(first.json()['integrity_valid'])
+        self.assertEqual(self.client.post(url,headers=self.engineer,json={'expected_version':0}).status_code,409)
+        self.assertEqual(self.client.post(url,headers=self.engineer,json={'expected_version':1}).status_code,409)
+        exact=self.client.get(url+'/1/pdf',headers=self.engineer)
+        self.assertEqual(exact.status_code,200)
+        self.assertEqual(exact.headers['cache-control'],'private, no-store')
+        self.assertEqual(hashlib.sha256(exact.content).hexdigest(),first.json()['pdf_sha256'])
+        acceptance={'expected_version':0,'status':'Accepted','customer_name':'Test Customer',
+                    'customer_confirmed':True,'note':'Reviewed retained report'}
+        self.assertEqual(self.client.post('/api/jobs/'+job['id']+'/acceptance-history',
+                                          headers=self.engineer,json=acceptance).status_code,200)
+        history=self.client.get(url,headers=self.engineer)
+        self.assertEqual(history.headers['cache-control'],'private, no-store')
+        self.assertFalse(history.json()[0]['source_current'])
+        second=self.client.post(url,headers=self.engineer,json={'expected_version':1})
+        self.assertEqual(second.status_code,200)
+        self.assertEqual(second.json()['version'],2)
+        self.assertNotEqual(second.json()['source_sha256'],first.json()['source_sha256'])
+        self.assertEqual(self.client.get(url+'/1/pdf',headers=self.engineer).content,exact.content)
 
     def test_diagnostic_validation(self):
         self.assertEqual(self.client.post('/api/diagnostics/run',headers=self.engineer,json={'module_id':'french_door_clearance','answers':{}}).status_code,422)

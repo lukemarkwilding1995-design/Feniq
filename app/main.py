@@ -29,6 +29,7 @@ from .migrations import require_current
 from .workflow_policy import scope as approval_scope, transition as check_transition
 from .inspection_drafts import InspectionDraft, register as register_inspection_drafts
 from .acceptance import CustomerAcceptance, register as register_acceptance
+from .report_revisions import ReportRevision, register as register_report_revisions
 
 BASE = Path(__file__).resolve().parent
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(BASE/"uploads")))
@@ -776,7 +777,7 @@ def delete_job(job_id: str, user: User = Depends(user_dep), db: Session = Depend
     from .passports import PassportInspection
     from .cases import TechnicalCase
     from .citations import Citation
-    for model in (DiagnosticSnapshot,LearningRecord,WorkOrder,ApprovalRequest,PassportInspection,TechnicalCase,Citation,JobCustomerLinkEvent,CustomerAcceptance):
+    for model in (DiagnosticSnapshot,LearningRecord,WorkOrder,ApprovalRequest,PassportInspection,TechnicalCase,Citation,JobCustomerLinkEvent,CustomerAcceptance,ReportRevision):
         if db.scalar(select(model.id).where(model.job_id==job.id)):
             raise HTTPException(409,"This inspection has retained history or linked work. Deletion is blocked; archival is not yet available")
     photos=db.scalars(select(Photo).where(Photo.job_id==job.id)).all()
@@ -1013,6 +1014,7 @@ register_privacy_requests(app,require_admin)
 
 register_inspection_drafts(app,user_dep)
 register_acceptance(app,user_dep)
+register_report_revisions(app,user_dep,UPLOAD_DIR)
 
 from .cases import register as register_cases
 register_cases(app,user_dep,check_job)

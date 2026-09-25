@@ -4,6 +4,8 @@ __pycache__/
 *.db
 app/uploads/
 .pytest_cache/
+.test-*/
+.tmp-tests/
 .venv/
 demo-data/
 private-library/
