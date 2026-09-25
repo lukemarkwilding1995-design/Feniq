@@ -14,7 +14,7 @@ from .acceptance import report_scope as acceptance_report_scope, rows as accepta
 from .audit import log as audit_log
 from .citations import citation_records
 from .db import Base, get_db
-from .models import Job, Photo, User, now
+from .models import AuditEvent, Job, Photo, User, now
 from .outcomes import history as outcome_rows, serialise as outcome_json
 from .pdf_report import build_report
 
@@ -125,6 +125,38 @@ def serialise(row: ReportRevision, current_source_sha256: str):
     }
 
 
+def access_history(db: Session, job: Job):
+    events = db.scalars(
+        select(AuditEvent)
+        .where(
+            AuditEvent.company_id == job.company_id,
+            AuditEvent.entity_type == "job",
+            AuditEvent.entity_id == job.id,
+            AuditEvent.action.in_(("inspection.report_downloaded", "inspection.report_revision_downloaded")),
+        )
+        .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
+        .limit(250)
+    ).all()
+    actor_ids = {row.user_id for row in events if row.user_id is not None}
+    actors = {row.id: row.name for row in db.scalars(select(User).where(User.id.in_(actor_ids))).all()} if actor_ids else {}
+    result = []
+    for row in events:
+        try:
+            detail = json.loads(row.detail_json or "{}")
+        except (TypeError, ValueError):
+            detail = {}
+        result.append({
+            "id": row.id,
+            "created_at": row.created_at,
+            "actor_id": row.user_id,
+            "actor_name": actors.get(row.user_id, "Former user" if row.user_id else "System"),
+            "kind": "retained_revision" if row.action == "inspection.report_revision_downloaded" else "current_report",
+            "version": detail.get("version"),
+            "pdf_sha256": detail.get("pdf_sha256"),
+        })
+    return result
+
+
 def register(app, user_dep, upload_dir: Path):
     router = APIRouter()
 
@@ -144,6 +176,12 @@ def register(app, user_dep, upload_dir: Path):
         response.headers["Cache-Control"] = "private, no-store"
         _, current_source_sha256 = current_report(db, job, upload_dir)
         return [serialise(row, current_source_sha256) for row in history(db, job)]
+
+    @router.get("/api/jobs/{job_id}/report-access-history")
+    def list_access_history(job_id: str, response: Response, user: User = Depends(user_dep), db: Session = Depends(get_db)):
+        job = job_for(db, job_id, user)
+        response.headers["Cache-Control"] = "private, no-store"
+        return access_history(db, job)
 
     @router.post("/api/jobs/{job_id}/report-revisions")
     def retain(job_id: str, data: ReportRevisionIn, user: User = Depends(user_dep), db: Session = Depends(get_db)):
@@ -184,6 +222,9 @@ def register(app, user_dep, upload_dir: Path):
         ))
         if not row:
             raise HTTPException(404, "Report revision not found")
+        audit_log(db, user.company_id, user.id, "inspection.report_revision_downloaded", "job", job.id,
+                  {"version": row.version, "pdf_sha256": row.pdf_sha256})
+        db.commit()
         return Response(
             content=row.pdf_bytes,
             media_type="application/pdf",

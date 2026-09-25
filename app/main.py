@@ -843,7 +843,10 @@ def pdf(job_id:str,user:User=Depends(user_dep),db:Session=Depends(get_db)):
     acceptance_history=acceptance_rows(db,job)
     current_acceptance=acceptance_json(acceptance_history[-1],report_scope(db,job)) if acceptance_history else None
     buf=build_report(job,job.engineer.name,photos,UPLOAD_DIR,citation_records(db,job),current_outcome,current_acceptance)
-    return StreamingResponse(buf,media_type="application/pdf",headers={"Content-Disposition":f'inline; filename="FenIQ-{job.id[:8]}.pdf"'})
+    pdf_sha256=hashlib.sha256(buf.getvalue()).hexdigest()
+    audit_log(db,user.company_id,user.id,"inspection.report_downloaded","job",job.id,{"pdf_sha256":pdf_sha256})
+    db.commit()
+    return StreamingResponse(buf,media_type="application/pdf",headers={"Content-Disposition":f'inline; filename="FenIQ-{job.id[:8]}.pdf"',"Cache-Control":"private, no-store","ETag":f'"{pdf_sha256}"'})
 
 @app.get("/api/analytics")
 def analytics(user:User=Depends(user_dep),db:Session=Depends(get_db)):

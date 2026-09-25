@@ -636,6 +636,7 @@ const pages = {
       linkHistory,
       acceptances,
       reportRevisions,
+      reportAccessHistory,
     ] = await Promise.all([
       api(`/api/jobs/${j.id}/diagnostic-snapshot`),
       api(`/api/jobs/${j.id}/outcome-history`),
@@ -645,6 +646,7 @@ const pages = {
         : [],
       api(`/api/jobs/${j.id}/acceptance-history`),
       api(`/api/jobs/${j.id}/report-revisions`),
+      api(`/api/jobs/${j.id}/report-access-history`),
     ]);
     const customerName = (id) =>
       customers.find((c) => c.id === id)?.name || id || "No direct link";
@@ -662,6 +664,7 @@ const pages = {
       outcomeSummary(outcomes) +
       acceptanceSummary(acceptances) +
       reportRevisionSummary(reportRevisions) +
+      reportAccessSummary(reportAccessHistory) +
       (await citationPanel(j)) +
       `<article class="panel"><div class="panel-head"><h2>FenIQ <small> / SERVICE REPORT</small></h2>${badge(j.approved_by_engineer ? "Engineer approved" : "Review required")}</div><div class="report-meta">${[
         ["Customer / site", j.customer],
@@ -723,6 +726,16 @@ function reportRevisionSummary(rows) {
         `<div class="visit"><div><b>Revision ${row.version}</b> · ${date(row.created_at)}<br><small>${row.source_current ? "Current report state" : "Historical report state"} · ${row.integrity_valid ? "Integrity checked" : "Integrity check failed"}<br>PDF SHA-256 ${esc(row.pdf_sha256.slice(0, 16))}… · ${Number(row.byte_count).toLocaleString()} bytes</small></div><button data-report-revision="${row.version}">Download exact PDF</button></div>`,
     )
     .join("")}</section>`;
+}
+function reportAccessSummary(rows) {
+  if (!rows.length)
+    return '<details class="panel" style="margin-bottom:20px"><summary><b>Report access history</b></summary><p>No report downloads have been recorded yet.</p></details>';
+  return `<details class="panel" style="margin-bottom:20px"><summary><b>Report access history</b> · ${rows.length} recorded</summary><p class="muted">FenIQ records authenticated downloads of the current report and retained exact PDF revisions.</p>${rows
+    .map(
+      (row) =>
+        `<div class="visit"><b>${row.kind === "retained_revision" ? `Retained revision ${row.version}` : "Current report"}</b><small>${date(row.created_at)} · ${esc(row.actor_name)}${row.pdf_sha256 ? `<br>PDF SHA-256 ${esc(row.pdf_sha256.slice(0, 16))}…` : ""}</small></div>`,
+    )
+    .join("")}</details>`;
 }
 function snapshotPanel(snapshot) {
   if (!snapshot)
@@ -1264,6 +1277,7 @@ document.addEventListener("click", async (e) => {
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
       toast(`Retained report revision ${version} downloaded`);
+      await showReport(activeJob.id);
     });
     return;
   }
@@ -1362,6 +1376,7 @@ document.addEventListener("click", async (e) => {
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
       toast("Report downloaded");
+      await showReport(activeJob.id);
     });
     return;
   }

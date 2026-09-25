@@ -1077,6 +1077,22 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(exact.status_code,200)
         self.assertEqual(exact.headers['cache-control'],'private, no-store')
         self.assertEqual(hashlib.sha256(exact.content).hexdigest(),first.json()['pdf_sha256'])
+        access_url='/api/jobs/'+job['id']+'/report-access-history'
+        access=self.client.get(access_url,headers=self.engineer)
+        self.assertEqual(access.status_code,200)
+        self.assertEqual(access.headers['cache-control'],'private, no-store')
+        self.assertEqual(access.json()[0]['kind'],'retained_revision')
+        self.assertEqual(access.json()[0]['version'],1)
+        self.assertEqual(access.json()[0]['pdf_sha256'],first.json()['pdf_sha256'])
+        self.assertEqual(access.json()[0]['actor_name'],'Engineer')
+        self.assertEqual(self.client.get(access_url,headers=outside_auth).status_code,403)
+        current=self.client.get('/api/jobs/'+job['id']+'/report.pdf',headers=self.engineer)
+        self.assertEqual(current.status_code,200)
+        self.assertEqual(current.headers['cache-control'],'private, no-store')
+        self.assertEqual(current.headers['etag'],'"'+hashlib.sha256(current.content).hexdigest()+'"')
+        access=self.client.get(access_url,headers=self.engineer).json()
+        self.assertEqual(access[0]['kind'],'current_report')
+        self.assertEqual(access[0]['pdf_sha256'],hashlib.sha256(current.content).hexdigest())
         acceptance={'expected_version':0,'status':'Accepted','customer_name':'Test Customer',
                     'customer_confirmed':True,'note':'Reviewed retained report'}
         self.assertEqual(self.client.post('/api/jobs/'+job['id']+'/acceptance-history',
