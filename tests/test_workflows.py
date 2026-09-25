@@ -851,6 +851,54 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.post(url+'/events',headers=headers,json={'kind':'Service note','occurred_on':'2026-09-13','note':'Denied'}).status_code,404)
         self.assertEqual(self.client.post(url+'/events',headers=self.admin,json={'kind':'Service note','occurred_on':'invalid','note':'Invalid date'}).status_code,422)
 
+    def test_passport_corrections_are_versioned_scoped_and_immutable(self):
+        product=self.passport();url='/api/passports/'+product['id']
+        original_site=self.client.get('/api/sites',headers=self.admin).json()[0]
+        revised_site=self.client.post('/api/sites',headers=self.admin,json={
+            'customer_id':original_site['customer_id'],'name':'Site B','address':'Revised fictional site'}).json()
+        correction={'expected_version':1,'site_id':revised_site['id'],'label':'Bedroom window',
+                    'product':'Window','manufacturer':'Fictional Systems','system_name':'FS 70',
+                    'serial_number':'DEMO-001','reason':'Corrected after checking the installation record'}
+        self.assertEqual(self.client.patch(url,headers=self.engineer,json=correction).status_code,403)
+        outsider=self.client.post('/api/register-company',json={
+            'company_name':'Correction outsider','admin_name':'Other','email':'correction-outside@example.test',
+            'password':'strong-password'}).json()
+        outsider_headers={'Authorization':'Bearer '+outsider['token']}
+        self.assertEqual(self.client.patch(url,headers=outsider_headers,json=correction).status_code,404)
+        saved=self.client.patch(url,headers=self.admin,json=correction)
+        self.assertEqual(saved.status_code,200)
+        detail=saved.json()
+        self.assertEqual(detail['passport']['version'],2)
+        self.assertEqual(detail['passport']['site_id'],revised_site['id'])
+        self.assertEqual(detail['passport']['label'],'Bedroom window')
+        self.assertEqual(detail['site']['name'],'Site B')
+        self.assertEqual(len(detail['corrections']),1)
+        history=detail['corrections'][0]
+        self.assertEqual(history['payload']['previous']['label'],'Kitchen window')
+        self.assertEqual(history['payload']['revised']['manufacturer'],'Fictional Systems')
+        self.assertEqual(history['payload']['reason'],correction['reason'])
+        self.assertEqual(history['actor_name'],'Admin')
+        self.assertTrue(history['integrity_valid'])
+        self.assertEqual(self.client.patch(url,headers=self.admin,json=correction).status_code,409)
+        no_change={**correction,'expected_version':2}
+        self.assertEqual(self.client.patch(url,headers=self.admin,json=no_change).status_code,409)
+        event_kinds=[row['kind'] for row in detail['events']]
+        self.assertEqual(event_kinds,['Passport created','Correction note'])
+        job=self.job(customer_id=original_site['customer_id'],reference='PASSPORT-CORRECTION').json()
+        self.assertEqual(self.client.post(url+'/inspections',headers=self.engineer,json={'job_id':job['id']}).status_code,200)
+        other_customer=self.client.post('/api/customers',headers=self.admin,json={'name':'Other passport customer'}).json()
+        other_site=self.client.post('/api/sites',headers=self.admin,json={
+            'customer_id':other_customer['id'],'name':'Conflicting site'}).json()
+        conflict={**correction,'expected_version':2,'site_id':other_site['id'],'reason':'Proposed relocation for boundary test'}
+        self.assertEqual(self.client.patch(url,headers=self.admin,json=conflict).status_code,409)
+        self.assertEqual(self.client.get(url,headers=self.admin).json()['passport']['version'],2)
+        with self.assertRaises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(text("UPDATE passport_corrections SET payload_json='changed'"))
+        with self.assertRaises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(text('DELETE FROM passport_corrections'))
+
     def test_passport_repeat_failure_analysis_uses_original_diagnoses(self):
         product=self.passport();base='/api/passports/'+product['id']
         first=self.job(reference='RF-1',diagnosis='Locking point interference').json()

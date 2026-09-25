@@ -8,7 +8,7 @@ from pathlib import Path
 from sqlalchemy import inspect, text
 
 DIRECTORY = Path(__file__).resolve().parents[1] / "migrations"
-REVISIONS = ("0001_baseline", "0002_snapshots", "0003_approval_scope", "0004_passports", "0005_cases", "0006_source_reviews", "0007_citations", "0008_outcomes", "0009_learning_reviews", "0010_learning_dataset", "0011_privacy_requests", "0012_job_customer_link", "0013_customer_link_review", "0014_inspection_drafts", "0015_customer_acceptance", "0016_report_revisions", "0017_report_branding")
+REVISIONS = ("0001_baseline", "0002_snapshots", "0003_approval_scope", "0004_passports", "0005_cases", "0006_source_reviews", "0007_citations", "0008_outcomes", "0009_learning_reviews", "0010_learning_dataset", "0011_privacy_requests", "0012_job_customer_link", "0013_customer_link_review", "0014_inspection_drafts", "0015_customer_acceptance", "0016_report_revisions", "0017_report_branding", "0018_passport_corrections")
 
 def fingerprint(source):
     return hashlib.sha256(json.dumps(json.loads(source), sort_keys=True, separators=(",", ":")).encode()).hexdigest()

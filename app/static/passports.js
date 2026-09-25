@@ -28,6 +28,26 @@ pages.passport = async function () {
         `<div class="visit"><div class="actions"><h4>${esc(item.diagnosis)}</h4>${badge(item.signal)}</div><p>${item.cases} linked inspection${item.cases === 1 ? "" : "s"} · ${item.resolved} resolved · ${item.not_resolved} not resolved · ${item.outcome_not_recorded} without retained outcome</p><p>${item.original_snapshot_cases} based on immutable original diagnosis · ${item.repeat_visit_required} requiring another visit</p>${item.requires_review ? '<p class="notice">Repeated diagnosis with an unresolved or follow-up outcome. Engineer review recommended.</p>' : ""}</div>`,
     )
     .join("");
+  const identityLabels = {
+    site_id: "Site",
+    label: "Product location / label",
+    product: "Product",
+    manufacturer: "Manufacturer",
+    system_name: "System",
+    serial_number: "Serial number",
+  };
+  const corrections = d.corrections
+    .map((row) => {
+      const changes = Object.keys(identityLabels)
+        .filter((key) => row.payload.previous[key] !== row.payload.revised[key])
+        .map(
+          (key) =>
+            `<p><b>${identityLabels[key]}:</b> ${esc(row.payload.previous[key] || "Not recorded")} → ${esc(row.payload.revised[key] || "Not recorded")}</p>`,
+        )
+        .join("");
+      return `<div class="visit"><small>Version ${row.version} · ${date(row.created_at)} · ${esc(row.actor_name)} · ${row.integrity_valid ? "Integrity checked" : "Integrity check failed"}</small><h4>${esc(row.payload.reason)}</h4>${changes}<small>SHA-256: ${esc(row.sha256)}</small></div>`;
+    })
+    .join("");
   return (
     head(
       "PRODUCT PASSPORT",
@@ -42,6 +62,7 @@ pages.passport = async function () {
       ["Serial number", p.serial_number],
       ["Site address", d.site.address],
       ["Passport ID", p.id],
+      ["Identity version", p.version],
     ]
       .map(
         ([k, v]) =>
@@ -49,8 +70,9 @@ pages.passport = async function () {
       )
       .join(
         "",
-      )}</div><p class="muted">Team-supplied identification. Verify product applicability against controlled manufacturer evidence.</p><div class="actions"><button data-passport-action="event">Add lifecycle note</button><button data-passport-action="link">Link inspection</button></div></section>` +
+      )}</div><p class="muted">Team-supplied identification. Verify product applicability against controlled manufacturer evidence.</p><div class="actions">${user.role === "admin" ? '<button data-passport-action="correct">Correct identity or site</button>' : ""}<button data-passport-action="event">Add lifecycle note</button><button data-passport-action="link">Link inspection</button></div></section>` +
     `<section class="panel" style="margin-top:24px"><div class="panel-head"><h3>Repeat-failure intelligence</h3>${badge(`${analysis.visible_linked_inspections} visible inspections`)}</div><p class="muted">${esc(analysis.method)}</p><p>${analysis.original_snapshot_cases} immutable original diagnoses · ${analysis.latest_outcomes} latest retained outcomes · ${analysis.omitted_without_diagnosis} records omitted without a diagnosis</p>${patterns || "<p>No diagnosis patterns are available yet.</p>"}</section>` +
+    `<section class="panel" style="margin-top:24px"><h3>Identity correction history</h3><p class="muted">Each correction retains the complete prior and revised identity with its reason and integrity hash.</p>${corrections || "<p>No identity corrections recorded.</p>"}</section>` +
     `<div class="grid" style="margin-top:24px"><section class="panel"><h3>Lifecycle history</h3><p class="muted">Entries are retained. Add a correction note to clarify an earlier entry.</p>${d.events.map((e) => `<div class="visit"><small>${esc(e.occurred_on)} · Recorded ${date(e.created_at)}</small><h4>${esc(e.kind)}</h4><p style="white-space:pre-wrap">${esc(e.note)}</p></div>`).join("")}</section><section class="panel"><h3>Linked inspections</h3>${d.inspections.length ? d.inspections.map((j) => `<div class="visit"><b>${esc(j.reference || "Inspection")}</b><p>${esc(j.outcome || "Outcome not recorded")}</p>${j.repair_outcome ? `<p><b>Latest repair:</b> ${esc(j.repair_outcome.payload.actual_repair)}</p><p><b>Final checks:</b> ${esc(j.repair_outcome.payload.verification_checks || "Not recorded in legacy feedback")}</p><small>Outcome revision ${j.repair_outcome.version} of ${j.outcome_revision_count} · ${j.repair_outcome.integrity_valid ? "Integrity checked" : "Integrity check failed"}</small>` : "<small>No retained repair outcome.</small>"}<p><button data-report="${j.id}">View report →</button></p></div>`).join("") : "<p>No linked reports available to your account.</p>"}</section></div>`
   );
 };
@@ -87,6 +109,17 @@ document.addEventListener("click", async (e) => {
         `<form id="passportCreate">${select("Site", "site_id", sites, "", "Select site…")}${field("Product location / label", "label", "", "text", 'required maxlength="200"')}${select("Product", "product", ["Window", "French Door", "Residential Door", "Bifold", "Sliding Door", "Tilt & Turn"])}${field("Manufacturer", "manufacturer")}${field("System", "system_name")}${field("Serial number", "serial_number")}<p class="error form-error" role="alert"></p><button class="primary">Create passport</button></form>`,
       );
     }
+    if (action === "correct") {
+      const [detail, sites] = await Promise.all([
+        api("/api/passports/" + activePassport),
+        api("/api/sites"),
+      ]);
+      const p = detail.passport;
+      openModal(
+        "Correct product identity or site",
+        `<form id="passportCorrect">${select("Site", "site_id", sites, p.site_id, "Select site…", "required")}${field("Product location / label", "label", p.label, "text", 'required maxlength="200"')}${select("Product", "product", ["Window", "French Door", "Residential Door", "Bifold", "Sliding Door", "Tilt & Turn"], p.product)}${field("Manufacturer", "manufacturer", p.manufacturer, "text", 'maxlength="180"')}${field("System", "system_name", p.system_name, "text", 'maxlength="180"')}${field("Serial number", "serial_number", p.serial_number, "text", 'maxlength="180"')}${area("Reason for correction", "reason", "", 'required minlength="5" maxlength="2000"')}<input type="hidden" name="expected_version" value="${p.version}"><p class="muted">You are correcting identity version ${p.version}. The previous values and your reason will be retained permanently.</p><p class="error form-error" role="alert"></p><button class="primary">Save correction</button></form>`,
+      );
+    }
     if (action === "event")
       openModal(
         "Add lifecycle note",
@@ -117,9 +150,13 @@ document.addEventListener("click", async (e) => {
 document.addEventListener("submit", async (e) => {
   const f = e.target;
   if (
-    !["siteForm", "passportCreate", "passportEvent", "passportLink"].includes(
-      f.id,
-    )
+    ![
+      "siteForm",
+      "passportCreate",
+      "passportCorrect",
+      "passportEvent",
+      "passportLink",
+    ].includes(f.id)
   )
     return;
   e.preventDefault();
@@ -131,10 +168,17 @@ document.addEventListener("submit", async (e) => {
       const endpoint = {
         siteForm: "/api/sites",
         passportCreate: "/api/passports",
+        passportCorrect: `/api/passports/${activePassport}`,
         passportEvent: `/api/passports/${activePassport}/events`,
         passportLink: `/api/passports/${activePassport}/inspections`,
       }[f.id];
-      const result = await send(endpoint, data);
+      if (f.id === "passportCorrect")
+        data.expected_version = Number(data.expected_version);
+      const result = await send(
+        endpoint,
+        data,
+        f.id === "passportCorrect" ? "PATCH" : "POST",
+      );
       if (f.id === "passportCreate") activePassport = result.id;
       $("modal").close();
       await go(f.id === "siteForm" ? "passports" : "passport");

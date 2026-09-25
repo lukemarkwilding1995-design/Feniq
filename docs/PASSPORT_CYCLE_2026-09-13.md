@@ -8,6 +8,8 @@ Migration `0004_passports` adds four tables and immutability triggers for events
 
 19 automated tests pass, including lifecycle links, date validation, cross-company isolation, admin-only registration, assigned-engineer report visibility, duplicate-link handling and retained-history SQL protection. JavaScript syntax passes. The visible browser flow created a fictional Willow House site/product, linked its existing inspection and recorded a service note.
 
-Limitations: no passport metadata edit/relocation/archive, link correction, attached files, QR/export, external transfer or verified manufacturer identity. Lifecycle notes do not establish warranty entitlement or certify work. PostgreSQL remains untested against a live server. Full company policy/production governance remains staged work.
+The later `0018_passport_corrections` cycle adds administrator-controlled product identity and site correction with optimistic versions, immutable old/new snapshots, reasons, actors, timestamps and integrity hashes. Relocation is rejected if the new site's customer conflicts with a linked inspection or work order. See `PASSPORT_CORRECTION_CYCLE_2026-09-25.md`.
+
+Limitations: no site metadata correction, passport archive, link correction, attached files, QR/export, external transfer or verified manufacturer identity. Lifecycle notes do not establish warranty entitlement or certify work. PostgreSQL remains untested against a live server. Full company policy/production governance remains staged work.
 
 Next: Technical Cases linked to passports and jobs, preserving existing review/approval gates. See PRODUCT_PASSPORTS.md for the current access model and scope.
