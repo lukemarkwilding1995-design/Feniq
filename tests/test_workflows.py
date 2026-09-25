@@ -945,6 +945,48 @@ class WorkflowTests(unittest.TestCase):
             with engine.begin() as connection:
                 connection.execute(text('DELETE FROM passport_state_events'))
 
+    def test_site_corrections_are_versioned_scoped_and_in_privacy_inventory(self):
+        product=self.passport();site_id=product['site_id'];url='/api/sites/'+site_id
+        before=self.client.get(url,headers=self.admin).json()
+        self.assertEqual(before['site']['version'],1)
+        customer_id=before['site']['customer_id']
+        correction={'expected_version':1,'name':'Willow House · Corrected demo',
+                    'address':'Corrected fictional address',
+                    'reason':'Corrected after checking the fictional site record'}
+        self.assertEqual(self.client.patch(url,headers=self.engineer,json=correction).status_code,403)
+        outsider=self.client.post('/api/register-company',json={
+            'company_name':'Site outsider','admin_name':'Other','email':'site-outside@example.test',
+            'password':'strong-password'}).json()
+        outside_headers={'Authorization':'Bearer '+outsider['token']}
+        self.assertEqual(self.client.get(url,headers=outside_headers).status_code,404)
+        self.assertEqual(self.client.patch(url,headers=outside_headers,json=correction).status_code,404)
+        self.assertEqual(self.client.patch(url,headers=self.admin,json={
+            **correction,'customer_id':'immutable-customer-link'}).status_code,422)
+        changed=self.client.patch(url,headers=self.admin,json=correction)
+        self.assertEqual(changed.status_code,200)
+        detail=changed.json()
+        self.assertEqual(detail['site']['version'],2)
+        self.assertEqual(detail['site']['customer_id'],customer_id)
+        self.assertEqual(detail['site']['name'],'Willow House · Corrected demo')
+        self.assertEqual(detail['corrections'][0]['payload']['previous']['name'],'Site A')
+        self.assertEqual(detail['corrections'][0]['payload']['revised']['address'],'Corrected fictional address')
+        self.assertEqual(detail['corrections'][0]['actor_name'],'Admin')
+        self.assertTrue(detail['corrections'][0]['integrity_valid'])
+        self.assertEqual(self.client.patch(url,headers=self.admin,json=correction).status_code,409)
+        no_change={**correction,'expected_version':2}
+        self.assertEqual(self.client.patch(url,headers=self.admin,json=no_change).status_code,409)
+        request=self.client.post('/api/privacy-requests',headers=self.admin,json={
+            'customer_id':customer_id,'kind':'Access','summary':'Review fictional corrected site'}).json()
+        inventory=self.client.get('/api/privacy-requests/'+request['id']+'/inventory',headers=self.admin).json()
+        self.assertEqual(inventory['inventory']['schema_version'],8)
+        self.assertEqual(inventory['inventory']['sites'][0]['corrections']['count'],1)
+        with self.assertRaises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(text("UPDATE site_corrections SET payload_json='changed'"))
+        with self.assertRaises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(text('DELETE FROM site_corrections'))
+
     def test_passport_repeat_failure_analysis_uses_original_diagnoses(self):
         product=self.passport();base='/api/passports/'+product['id']
         first=self.job(reference='RF-1',diagnosis='Locking point interference').json()

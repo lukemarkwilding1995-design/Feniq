@@ -18,7 +18,7 @@ pages.passports = async function () {
     ) +
     '<div class="notice">Product details are supplied by your team. They are not verified manufacturer specifications. Lifecycle notes are shared within your company; linked inspection reports retain their existing access restrictions.</div>' +
     `<div class="cards">${products.length ? products.map((p) => `<article class="panel"><div class="actions"><div class="eyebrow">${esc(p.product)}</div>${p.archived_at ? badge("Archived") : ""}</div><h3>${esc(p.label)}</h3><p>${esc(sites.find((s) => s.id === p.site_id)?.name || "Site")}</p><p class="muted">${esc(p.manufacturer)} ${esc(p.system_name)}</p><p><small>Serial: ${esc(p.serial_number || "Not recorded")}</small></p><button data-passport-id="${p.id}">Open passport →</button></article>`).join("") : empty("No products registered yet", "An administrator can add a site and register the first product.")}</div>` +
-    `<section class="panel" style="margin-top:24px"><h3>Registered sites</h3>${sites.length ? sites.map((s) => `<div class="visit"><b>${esc(s.name)}</b><p>${esc(s.address || "Address not recorded")}</p></div>`).join("") : "<p>No sites registered. Existing customers remain available when adding a site.</p>"}</section>`
+    `<section class="panel" style="margin-top:24px"><h3>Registered sites</h3>${sites.length ? sites.map((s) => `<div class="visit"><div class="actions"><b>${esc(s.name)}</b>${user.role === "admin" ? `<button data-site-correct="${s.id}">Correct details</button>` : ""}</div><p>${esc(s.address || "Address not recorded")}</p><small>Site version ${s.version}</small></div>`).join("") : "<p>No sites registered. Existing customers remain available when adding a site.</p>"}</section>`
   );
 };
 pages.passport = async function () {
@@ -90,6 +90,31 @@ pages.passport = async function () {
 document.addEventListener("click", async (e) => {
   const b = e.target.closest("button");
   if (!b) return;
+  if (b.dataset.siteCorrect) {
+    await busy(b, async () => {
+      const detail = await api("/api/sites/" + b.dataset.siteCorrect);
+      const site = detail.site;
+      const history = detail.corrections
+        .map((row) => {
+          const changes = ["name", "address"]
+            .filter(
+              (key) => row.payload.previous[key] !== row.payload.revised[key],
+            )
+            .map(
+              (key) =>
+                `<p><b>${key === "name" ? "Site name" : "Address"}:</b> ${esc(row.payload.previous[key] || "Not recorded")} → ${esc(row.payload.revised[key] || "Not recorded")}</p>`,
+            )
+            .join("");
+          return `<div class="visit"><small>Version ${row.version} · ${date(row.created_at)} · ${esc(row.actor_name)} · ${row.integrity_valid ? "Integrity checked" : "Integrity check failed"}</small><h4>${esc(row.payload.reason)}</h4>${changes}</div>`;
+        })
+        .join("");
+      openModal(
+        "Correct site details",
+        `<form id="siteCorrect" data-site-id="${site.id}">${field("Site name", "name", site.name, "text", 'required maxlength="200"')}${area("Site address", "address", site.address, 'maxlength="10000"')}${area("Reason for correction", "reason", "", 'required minlength="5" maxlength="2000"')}<input type="hidden" name="expected_version" value="${site.version}"><p class="muted">The customer association stays unchanged. Previous values and your reason will be retained permanently.</p><p class="error form-error" role="alert"></p><button class="primary">Save correction</button></form><h3 style="margin-top:24px">Correction history</h3>${history || "<p>No site corrections recorded.</p>"}`,
+      );
+    });
+    return;
+  }
   if (b.dataset.passportId) {
     activePassport = b.dataset.passportId;
     await go("passport");
@@ -172,6 +197,7 @@ document.addEventListener("submit", async (e) => {
   if (
     ![
       "siteForm",
+      "siteCorrect",
       "passportCreate",
       "passportCorrect",
       "passportState",
@@ -188,22 +214,25 @@ document.addEventListener("submit", async (e) => {
       const data = Object.fromEntries(new FormData(f));
       const endpoint = {
         siteForm: "/api/sites",
+        siteCorrect: `/api/sites/${f.dataset.siteId}`,
         passportCreate: "/api/passports",
         passportCorrect: `/api/passports/${activePassport}`,
         passportState: `/api/passports/${activePassport}/state`,
         passportEvent: `/api/passports/${activePassport}/events`,
         passportLink: `/api/passports/${activePassport}/inspections`,
       }[f.id];
-      if (["passportCorrect", "passportState"].includes(f.id))
+      if (["siteCorrect", "passportCorrect", "passportState"].includes(f.id))
         data.expected_version = Number(data.expected_version);
       const result = await send(
         endpoint,
         data,
-        f.id === "passportCorrect" ? "PATCH" : "POST",
+        ["siteCorrect", "passportCorrect"].includes(f.id) ? "PATCH" : "POST",
       );
       if (f.id === "passportCreate") activePassport = result.id;
       $("modal").close();
-      await go(f.id === "siteForm" ? "passports" : "passport");
+      await go(
+        ["siteForm", "siteCorrect"].includes(f.id) ? "passports" : "passport",
+      );
       toast("Saved");
     } catch (error) {
       f.querySelector(".form-error").textContent = error.message;

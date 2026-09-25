@@ -12,11 +12,11 @@ class MigrationTests(unittest.TestCase):
         self.engine.dispose()
 
     def test_empty_database_and_repeat_upgrade(self):
-        self.assertEqual(upgrade(self.engine), '0019_passport_archive')
-        self.assertEqual(upgrade(self.engine), '0019_passport_archive')
+        self.assertEqual(upgrade(self.engine), '0020_site_corrections')
+        self.assertEqual(upgrade(self.engine), '0020_site_corrections')
         require_current(self.engine)
         with self.engine.connect() as connection:
-            self.assertEqual(connection.execute(text('SELECT count(*) FROM feniq_schema_revisions')).scalar(), 19)
+            self.assertEqual(connection.execute(text('SELECT count(*) FROM feniq_schema_revisions')).scalar(), 20)
             self.assertIn('customer_id', {column['name'] for column in inspect(connection).get_columns('jobs')})
             self.assertTrue(inspect(connection).has_table('job_customer_link_events'))
             self.assertIn('report_accent', {column['name'] for column in inspect(connection).get_columns('companies')})
@@ -24,6 +24,8 @@ class MigrationTests(unittest.TestCase):
             self.assertTrue(inspect(connection).has_table('passport_corrections'))
             self.assertIn('archived_at', {column['name'] for column in inspect(connection).get_columns('product_passports')})
             self.assertTrue(inspect(connection).has_table('passport_state_events'))
+            self.assertIn('version', {column['name'] for column in inspect(connection).get_columns('sites')})
+            self.assertTrue(inspect(connection).has_table('site_corrections'))
 
     def test_legacy_database_preserves_existing_records(self):
         baseline = json.loads((DIRECTORY / '0001_baseline_sqlite.json').read_text())

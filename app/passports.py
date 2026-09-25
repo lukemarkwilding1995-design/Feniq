@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 from fastapi import Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import String, Text, ForeignKey, DateTime, Integer, UniqueConstraint, select, update
 from sqlalchemy.orm import Mapped, mapped_column, Session
 from sqlalchemy.exc import IntegrityError
@@ -21,7 +21,21 @@ class Site(Base):
     customer_id: Mapped[str] = mapped_column(ForeignKey("customers.id"), index=True)
     name: Mapped[str] = mapped_column(String(200))
     address: Mapped[str] = mapped_column(Text, default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class SiteCorrection(Base):
+    __tablename__ = "site_corrections"
+    __table_args__ = (UniqueConstraint("site_id", "version", name="uq_site_correction_version"),)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    site_id: Mapped[str] = mapped_column(ForeignKey("sites.id"), index=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    payload_json: Mapped[str] = mapped_column(Text)
+    sha256: Mapped[str] = mapped_column(String(64))
 
 
 class ProductPassport(Base):
@@ -94,6 +108,14 @@ class SiteIn(Trimmed):
     customer_id: str
     name: str = Field(min_length=1, max_length=200)
     address: str = ""
+
+
+class SiteCorrectionIn(Trimmed):
+    model_config = ConfigDict(extra='forbid')
+    expected_version: int = Field(ge=1)
+    name: str = Field(min_length=1, max_length=200)
+    address: str = Field(default="", max_length=10000)
+    reason: str = Field(min_length=5, max_length=2000)
 
 
 class PassportIn(Trimmed):
@@ -171,6 +193,44 @@ def register(app, user_dep, check_job):
         site=Site(id=str(uuid.uuid4()),company_id=user.company_id,**data.model_dump())
         db.add(site);log(db,user.company_id,user.id,'site.created','site',site.id)
         db.commit();db.refresh(site);return site
+
+    @app.get('/api/sites/{identifier}')
+    def site_detail(identifier:str,user=Depends(user_dep),db:Session=Depends(get_db)):
+        site=owned(db,Site,identifier,user)
+        corrections=db.scalars(select(SiteCorrection).where(
+            SiteCorrection.site_id==identifier).order_by(SiteCorrection.version)).all()
+        actor_ids={row.actor_id for row in corrections}
+        actors={row.id:row.name for row in db.scalars(select(User).where(User.id.in_(actor_ids))).all()} if actor_ids else {}
+        return {'site':site,'corrections':[serialise_correction(
+            row,actors.get(row.actor_id,'Unknown user')) for row in corrections]}
+
+    @app.patch('/api/sites/{identifier}')
+    def correct_site(identifier:str,data:SiteCorrectionIn,user=Depends(user_dep),db:Session=Depends(get_db)):
+        admin(user)
+        site=owned(db,Site,identifier,user)
+        if site.version != data.expected_version:
+            raise HTTPException(409,'Site changed; refresh and review the latest version')
+        previous={'name':site.name,'address':site.address}
+        revised={'name':data.name,'address':data.address}
+        if previous == revised:
+            raise HTTPException(409,'No site name or address changed')
+        version=site.version+1
+        payload={'reason':data.reason,'previous':previous,'revised':revised}
+        encoded=json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False)
+        correction=SiteCorrection(id=str(uuid.uuid4()),site_id=identifier,company_id=user.company_id,
+            version=version,actor_id=user.id,payload_json=encoded,
+            sha256=hashlib.sha256(encoded.encode()).hexdigest())
+        changed=db.execute(update(Site).where(Site.id==identifier,Site.company_id==user.company_id,
+            Site.version==data.expected_version).values(**revised,version=version)).rowcount
+        if changed != 1:
+            db.rollback();raise HTTPException(409,'Site changed; refresh and review the latest version')
+        db.add(correction)
+        log(db,user.company_id,user.id,'site.corrected','site',identifier,
+            {'version':version,'correction_id':correction.id,'sha256':correction.sha256})
+        try:db.commit()
+        except IntegrityError:
+            db.rollback();raise HTTPException(409,'Site changed; refresh and review the latest version')
+        return site_detail(identifier,user,db)
 
     @app.get('/api/passports')
     def passports(include_archived:bool=False,user=Depends(user_dep),db:Session=Depends(get_db)):

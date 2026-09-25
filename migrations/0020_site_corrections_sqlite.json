@@ -1,0 +1,8 @@
+[
+  "ALTER TABLE sites ADD COLUMN version INTEGER NOT NULL DEFAULT 1",
+  "CREATE TABLE site_corrections (id VARCHAR(64) NOT NULL, site_id VARCHAR(64) NOT NULL, company_id INTEGER NOT NULL, version INTEGER NOT NULL, actor_id INTEGER NOT NULL, created_at DATETIME NOT NULL, payload_json TEXT NOT NULL, sha256 VARCHAR(64) NOT NULL, PRIMARY KEY (id), CONSTRAINT uq_site_correction_version UNIQUE (site_id, version), FOREIGN KEY(site_id) REFERENCES sites (id), FOREIGN KEY(company_id) REFERENCES companies (id), FOREIGN KEY(actor_id) REFERENCES users (id))",
+  "CREATE INDEX ix_site_corrections_site_id ON site_corrections (site_id)",
+  "CREATE INDEX ix_site_corrections_company_id ON site_corrections (company_id)",
+  "CREATE TRIGGER site_corrections_no_update BEFORE UPDATE ON site_corrections BEGIN SELECT RAISE(ABORT, 'Site correction history is immutable'); END",
+  "CREATE TRIGGER site_corrections_no_delete BEFORE DELETE ON site_corrections BEGIN SELECT RAISE(ABORT, 'Site correction history is immutable'); END"
+]

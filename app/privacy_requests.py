@@ -13,8 +13,8 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from .audit import log
 from .db import Base, get_db
 from .models import ApprovalRequest, Customer, DiagnosticSnapshot, Job, JobCustomerLinkEvent, LearningRecord, Photo, WorkOrder, now
-from .passports import (Site, ProductPassport, PassportInspection, PassportEvent,
-                        PassportCorrection, PassportStateEvent)
+from .passports import (Site, SiteCorrection, ProductPassport, PassportInspection,
+                        PassportEvent, PassportCorrection, PassportStateEvent)
 from .cases import TechnicalCase, CaseEvent
 from .citations import Citation
 from .learning_reviews import LearningReview
@@ -110,6 +110,10 @@ def register(app, require_admin):
             Site.company_id == request.company_id, Site.customer_id == request.customer_id
         ).order_by(Site.id)).all()
         site_ids = [row.id for row in sites]
+        site_corrections = db.scalars(select(SiteCorrection).where(
+            SiteCorrection.company_id == request.company_id,
+            SiteCorrection.site_id.in_(site_ids)
+        ).order_by(SiteCorrection.id)).all()
         passports = db.scalars(select(ProductPassport).where(
             ProductPassport.company_id == request.company_id,
             ProductPassport.site_id.in_(site_ids),
@@ -235,6 +239,7 @@ def register(app, require_admin):
             return grouped
 
         passport_history = grouped_digest(passport_events, "passport_id")
+        site_correction_history = grouped_digest(site_corrections, "site_id")
         passport_correction_history = grouped_digest(passport_corrections, "passport_id")
         passport_state_history = grouped_digest(passport_state_events, "passport_id")
         outcome_history = grouped_digest(outcome_revisions, "job_id")
@@ -253,9 +258,10 @@ def register(app, require_admin):
             return {"count": len(values), "metadata_sha256": hashlib.sha256(json.dumps(values).encode()).hexdigest()}
 
         payload = {
-            "schema_version": 7,
+            "schema_version": 8,
             "customer": {"id": customer.id, "name": customer.name, "record_sha256": record_digest(customer)},
-            "sites": [{"id": row.id, "name": row.name, "record_sha256": record_digest(row)} for row in sites],
+            "sites": [{"id": row.id, "name": row.name, "record_sha256": record_digest(row),
+                       "corrections": history_digest(site_correction_history, row.id)} for row in sites],
             "passports": [{"id": row.id, "label": row.label, "record_sha256": record_digest(row),
                            "lifecycle_events": history_digest(passport_history, row.id),
                            "identity_corrections": history_digest(passport_correction_history, row.id),
@@ -404,6 +410,7 @@ def register(app, require_admin):
         job_ids = [row["id"] for row in items["inspections"]]
         case_ids = [row["id"] for row in items["technical_cases"]]
         sites = db.scalars(select(Site).where(Site.company_id == admin.company_id, Site.id.in_(site_ids)).order_by(Site.id)).all()
+        site_corrections = db.scalars(select(SiteCorrection).where(SiteCorrection.company_id == admin.company_id, SiteCorrection.site_id.in_(site_ids)).order_by(SiteCorrection.site_id, SiteCorrection.version)).all()
         passports = db.scalars(select(ProductPassport).where(ProductPassport.company_id == admin.company_id, ProductPassport.id.in_(passport_ids)).order_by(ProductPassport.id)).all()
         orders = db.scalars(select(WorkOrder).where(WorkOrder.company_id == admin.company_id, WorkOrder.id.in_(order_ids)).order_by(WorkOrder.id)).all()
         jobs = db.scalars(select(Job).where(Job.company_id == admin.company_id, Job.id.in_(job_ids)).order_by(Job.id)).all()
@@ -423,7 +430,10 @@ def register(app, require_admin):
             "possible_unlinked_inspection_count": len(items["possible_unlinked_inspections"]),
             "historical_customer_link_lead_count": len(items["historical_customer_link_leads"]),
             "customer": selected(customer, ("id", "name", "contact_name", "email", "phone", "address")),
-            "sites": [selected(row, ("id", "name", "address")) for row in sites],
+            "sites": [selected(row, ("id", "name", "address", "version")) for row in sites],
+            "site_corrections": [{"site_id": row.site_id, "version": row.version,
+                                  "created_at": row.created_at.isoformat(),
+                                  "payload": json.loads(row.payload_json)} for row in site_corrections],
             "passports": [selected(row, ("id", "site_id", "label", "product", "manufacturer", "system_name", "serial_number", "version", "archived_at")) for row in passports],
             "work_orders": [selected(row, ("id", "customer_id", "job_id", "title", "status", "scheduled_for", "site_reference", "notes")) for row in orders],
             "inspections": [selected(row, ("id", "reference", "customer", "product", "fault", "diagnosis", "recommendation", "work_done", "parts_required", "outcome", "engineer_notes", "signature", "created_at")) for row in jobs],
