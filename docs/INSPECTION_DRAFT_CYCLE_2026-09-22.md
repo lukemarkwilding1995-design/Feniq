@@ -1,5 +1,7 @@
 # Resumable inspection drafts — 22 September 2026
 
+Follow-up: [inspection navigation and fresh review](INSPECTION_NAVIGATION_CYCLE_2026-09-25.md) captures forms on backward wizard navigation and clears engineer approval before a new diagnostic result is reviewed.
+
 Branch: `feniq-phase1-platform`. Migration `0014_inspection_drafts` adds one private draft per user, with a company ID, version, wizard step, bounded payload and update time. Apply with application writers stopped and a backup. The migration is forward-only; restore the backup for deployment rollback.
 
 An engineer can choose **Save draft and exit** on the details, physical-checks or repair step. Their dashboard shows **Resume draft** and an explicitly confirmed **Discard draft** action after refresh or sign-in. The API uses `GET` and `PUT /api/inspection-draft`, with company/user scope, no-store reads, foreign-link validation and optimistic versions. The draft holds partial answers; it is not a saved diagnosis, customer sign-off or engineer approval. Signatures and approval flags are omitted. Resuming the repair step reruns the current server diagnostic rules from retained checks; changed or incomplete checks return the engineer to physical checks. Completing a new inspection with the matching draft version atomically consumes that draft and creates the inspection. A stale draft version rejects the entire save. `DELETE /api/inspection-draft` supports explicit version-checked discard.

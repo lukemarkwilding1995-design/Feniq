@@ -837,7 +837,16 @@ function captureDraftForm() {
             : values[check.key];
     }
   } else {
+    if (form.id === "detailsForm" && values.module !== draft.module) {
+      draft.diagnostic_answers = {};
+      diagnosis = null;
+      draft.approved_by_engineer = false;
+    }
     draft = { ...draft, ...values };
+    if (form.id === "resultForm") {
+      // Returning to checks requires review of the next diagnostic result.
+      draft.approved_by_engineer = false;
+    }
   }
 }
 async function saveInspectionDraft() {
@@ -1144,6 +1153,14 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (b.dataset.go) {
+    if (
+      (screen === "checks" && b.dataset.go === "inspection") ||
+      (screen === "result" && b.dataset.go === "checks" && !editing)
+    ) {
+      captureDraftForm();
+      diagnosis = null;
+      draft.approved_by_engineer = false;
+    }
     await go(b.dataset.go);
     return;
   }
@@ -1445,7 +1462,7 @@ document.addEventListener("submit", async (e) => {
         toast("Saved inspection draft discarded.");
       }
       if (form.id === "detailsForm") {
-        draft = { ...draft, ...data };
+        captureDraftForm();
         await go("checks");
       }
       if (form.id === "checksForm") {
@@ -1740,8 +1757,11 @@ document.addEventListener("input", (e) => {
   }
 });
 document.addEventListener("change", (e) => {
-  if (e.target.form?.id === "detailsForm" && e.target.name === "module")
+  if (e.target.form?.id === "detailsForm" && e.target.name === "module") {
     draft.diagnostic_answers = {};
+    diagnosis = null;
+    draft.approved_by_engineer = false;
+  }
 });
 // Private source documents are loaded only through company-authorised endpoints.
 pages.library = async function () {
