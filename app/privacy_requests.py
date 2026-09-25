@@ -13,7 +13,8 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from .audit import log
 from .db import Base, get_db
 from .models import ApprovalRequest, Customer, DiagnosticSnapshot, Job, JobCustomerLinkEvent, LearningRecord, Photo, WorkOrder, now
-from .passports import Site, ProductPassport, PassportInspection, PassportEvent
+from .passports import (Site, ProductPassport, PassportInspection, PassportEvent,
+                        PassportCorrection, PassportStateEvent)
 from .cases import TechnicalCase, CaseEvent
 from .citations import Citation
 from .learning_reviews import LearningReview
@@ -180,6 +181,14 @@ def register(app, require_admin):
         passport_events = db.scalars(select(PassportEvent).where(
             PassportEvent.passport_id.in_(passport_ids)
         ).order_by(PassportEvent.id)).all()
+        passport_corrections = db.scalars(select(PassportCorrection).where(
+            PassportCorrection.company_id == request.company_id,
+            PassportCorrection.passport_id.in_(passport_ids)
+        ).order_by(PassportCorrection.id)).all()
+        passport_state_events = db.scalars(select(PassportStateEvent).where(
+            PassportStateEvent.company_id == request.company_id,
+            PassportStateEvent.passport_id.in_(passport_ids)
+        ).order_by(PassportStateEvent.id)).all()
         outcome_revisions = db.scalars(select(OutcomeRevision).where(
             OutcomeRevision.company_id == request.company_id,
             OutcomeRevision.job_id.in_(review_job_ids),
@@ -226,6 +235,8 @@ def register(app, require_admin):
             return grouped
 
         passport_history = grouped_digest(passport_events, "passport_id")
+        passport_correction_history = grouped_digest(passport_corrections, "passport_id")
+        passport_state_history = grouped_digest(passport_state_events, "passport_id")
         outcome_history = grouped_digest(outcome_revisions, "job_id")
         snapshot_history = grouped_digest(diagnostic_snapshots, "job_id")
         citation_history = grouped_digest(citations, "job_id")
@@ -242,11 +253,13 @@ def register(app, require_admin):
             return {"count": len(values), "metadata_sha256": hashlib.sha256(json.dumps(values).encode()).hexdigest()}
 
         payload = {
-            "schema_version": 6,
+            "schema_version": 7,
             "customer": {"id": customer.id, "name": customer.name, "record_sha256": record_digest(customer)},
             "sites": [{"id": row.id, "name": row.name, "record_sha256": record_digest(row)} for row in sites],
             "passports": [{"id": row.id, "label": row.label, "record_sha256": record_digest(row),
-                           "lifecycle_events": history_digest(passport_history, row.id)} for row in passports],
+                           "lifecycle_events": history_digest(passport_history, row.id),
+                           "identity_corrections": history_digest(passport_correction_history, row.id),
+                           "state_events": history_digest(passport_state_history, row.id)} for row in passports],
             "work_orders": [{"id": row.id, "title": row.title, "job_id": row.job_id,
                              "record_sha256": record_digest(row)} for row in orders],
             "inspections": [{"id": row.id, "reference": row.reference,
@@ -398,6 +411,8 @@ def register(app, require_admin):
         outcomes = db.scalars(select(OutcomeRevision).where(OutcomeRevision.company_id == admin.company_id, OutcomeRevision.job_id.in_(job_ids)).order_by(OutcomeRevision.job_id, OutcomeRevision.version)).all()
         photos = db.scalars(select(Photo).where(Photo.company_id == admin.company_id, Photo.job_id.in_(job_ids)).order_by(Photo.id)).all()
         passport_events = db.scalars(select(PassportEvent).where(PassportEvent.passport_id.in_(passport_ids)).order_by(PassportEvent.id)).all()
+        passport_corrections = db.scalars(select(PassportCorrection).where(PassportCorrection.company_id == admin.company_id, PassportCorrection.passport_id.in_(passport_ids)).order_by(PassportCorrection.passport_id, PassportCorrection.version)).all()
+        passport_state_events = db.scalars(select(PassportStateEvent).where(PassportStateEvent.company_id == admin.company_id, PassportStateEvent.passport_id.in_(passport_ids)).order_by(PassportStateEvent.passport_id, PassportStateEvent.version)).all()
         case_events = db.scalars(select(CaseEvent).where(CaseEvent.case_id.in_(case_ids)).order_by(CaseEvent.id)).all()
         response.headers["Cache-Control"] = "private, no-store"
         return {
@@ -409,13 +424,19 @@ def register(app, require_admin):
             "historical_customer_link_lead_count": len(items["historical_customer_link_leads"]),
             "customer": selected(customer, ("id", "name", "contact_name", "email", "phone", "address")),
             "sites": [selected(row, ("id", "name", "address")) for row in sites],
-            "passports": [selected(row, ("id", "site_id", "label", "product", "manufacturer", "system_name", "serial_number")) for row in passports],
+            "passports": [selected(row, ("id", "site_id", "label", "product", "manufacturer", "system_name", "serial_number", "version", "archived_at")) for row in passports],
             "work_orders": [selected(row, ("id", "customer_id", "job_id", "title", "status", "scheduled_for", "site_reference", "notes")) for row in orders],
             "inspections": [selected(row, ("id", "reference", "customer", "product", "fault", "diagnosis", "recommendation", "work_done", "parts_required", "outcome", "engineer_notes", "signature", "created_at")) for row in jobs],
             "outcome_revisions": [{"job_id": row.job_id, "version": row.version,
                                    "payload": json.loads(row.payload_json)} for row in outcomes],
             "photo_metadata": [selected(row, ("id", "job_id", "original_name", "phase")) for row in photos],
             "passport_events": [selected(row, ("passport_id", "kind", "occurred_on", "note")) for row in passport_events],
+            "passport_corrections": [{"passport_id": row.passport_id, "version": row.version,
+                                       "created_at": row.created_at.isoformat(),
+                                       "payload": json.loads(row.payload_json)} for row in passport_corrections],
+            "passport_state_events": [{"passport_id": row.passport_id, "version": row.version,
+                                        "created_at": row.created_at.isoformat(),
+                                        "payload": json.loads(row.payload_json)} for row in passport_state_events],
             "technical_cases": [selected(row, ("id", "title", "description", "status", "resolution")) for row in cases],
             "case_events": [selected(row, ("case_id", "kind", "note")) for row in case_events],
         }

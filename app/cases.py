@@ -93,6 +93,7 @@ def register(app,user_dep,check_job):
         if data.passport_id:
             passport=db.get(ProductPassport,data.passport_id)
             if not passport or passport.company_id!=user.company_id:raise HTTPException(404,'Passport not found')
+            if passport.archived_at:raise HTTPException(409,'Restore this passport before opening a new technical case')
         job=db.get(Job,data.job_id) if data.job_id else None
         if data.job_id:check_job(job,user)
         if data.passport_id and job:

@@ -1,0 +1,8 @@
+[
+  "ALTER TABLE product_passports ADD COLUMN archived_at TIMESTAMP WITH TIME ZONE",
+  "CREATE TABLE passport_state_events (id VARCHAR(64) NOT NULL, passport_id VARCHAR(64) NOT NULL, company_id INTEGER NOT NULL, version INTEGER NOT NULL, actor_id INTEGER NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL, payload_json TEXT NOT NULL, sha256 VARCHAR(64) NOT NULL, PRIMARY KEY (id), CONSTRAINT uq_passport_state_version UNIQUE (passport_id, version), FOREIGN KEY(passport_id) REFERENCES product_passports (id), FOREIGN KEY(company_id) REFERENCES companies (id), FOREIGN KEY(actor_id) REFERENCES users (id))",
+  "CREATE INDEX ix_passport_state_events_passport_id ON passport_state_events (passport_id)",
+  "CREATE INDEX ix_passport_state_events_company_id ON passport_state_events (company_id)",
+  "CREATE FUNCTION protect_passport_state_events() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Passport state history is immutable'; END; $$",
+  "CREATE TRIGGER passport_state_events_immutable BEFORE UPDATE OR DELETE ON passport_state_events FOR EACH ROW EXECUTE FUNCTION protect_passport_state_events()"
+]

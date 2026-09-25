@@ -35,12 +35,26 @@ class ProductPassport(Base):
     system_name: Mapped[str] = mapped_column(String(180), default="")
     serial_number: Mapped[str] = mapped_column(String(180), default="")
     version: Mapped[int] = mapped_column(Integer, default=1)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
 class PassportCorrection(Base):
     __tablename__ = "passport_corrections"
     __table_args__ = (UniqueConstraint("passport_id", "version", name="uq_passport_correction_version"),)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    passport_id: Mapped[str] = mapped_column(ForeignKey("product_passports.id"), index=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    payload_json: Mapped[str] = mapped_column(Text)
+    sha256: Mapped[str] = mapped_column(String(64))
+
+
+class PassportStateEvent(Base):
+    __tablename__ = "passport_state_events"
+    __table_args__ = (UniqueConstraint("passport_id", "version", name="uq_passport_state_version"),)
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     passport_id: Mapped[str] = mapped_column(ForeignKey("product_passports.id"), index=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
@@ -106,6 +120,12 @@ class PassportCorrectionIn(PassportIn):
     reason: str = Field(min_length=5, max_length=2000)
 
 
+class PassportStateIn(Trimmed):
+    expected_version: int = Field(ge=1)
+    state: Literal['Active', 'Archived']
+    reason: str = Field(min_length=5, max_length=2000)
+
+
 def passport_identity(record):
     return {field: getattr(record, field) for field in (
         "site_id", "label", "product", "manufacturer", "system_name", "serial_number"
@@ -113,6 +133,15 @@ def passport_identity(record):
 
 
 def serialise_correction(record, actor_name):
+    return {
+        "id": record.id, "version": record.version, "actor_id": record.actor_id,
+        "actor_name": actor_name, "created_at": record.created_at,
+        "payload": json.loads(record.payload_json), "sha256": record.sha256,
+        "integrity_valid": hashlib.sha256(record.payload_json.encode()).hexdigest() == record.sha256,
+    }
+
+
+def serialise_state_event(record, actor_name):
     return {
         "id": record.id, "version": record.version, "actor_id": record.actor_id,
         "actor_name": actor_name, "created_at": record.created_at,
@@ -144,8 +173,11 @@ def register(app, user_dep, check_job):
         db.commit();db.refresh(site);return site
 
     @app.get('/api/passports')
-    def passports(user=Depends(user_dep),db:Session=Depends(get_db)):
-        return db.scalars(select(ProductPassport).where(ProductPassport.company_id==user.company_id).order_by(ProductPassport.created_at.desc())).all()
+    def passports(include_archived:bool=False,user=Depends(user_dep),db:Session=Depends(get_db)):
+        if include_archived:admin(user)
+        query=select(ProductPassport).where(ProductPassport.company_id==user.company_id)
+        if not include_archived:query=query.where(ProductPassport.archived_at.is_(None))
+        return db.scalars(query.order_by(ProductPassport.created_at.desc())).all()
 
     @app.post('/api/passports')
     def create_passport(data:PassportIn,user=Depends(user_dep),db:Session=Depends(get_db)):
@@ -163,7 +195,8 @@ def register(app, user_dep, check_job):
         product=owned(db,ProductPassport,identifier,user)
         events=db.scalars(select(PassportEvent).where(PassportEvent.passport_id==identifier).order_by(PassportEvent.created_at,PassportEvent.id)).all()
         corrections=db.scalars(select(PassportCorrection).where(PassportCorrection.passport_id==identifier).order_by(PassportCorrection.version)).all()
-        actor_ids={row.actor_id for row in corrections}
+        state_events=db.scalars(select(PassportStateEvent).where(PassportStateEvent.passport_id==identifier).order_by(PassportStateEvent.version)).all()
+        actor_ids={row.actor_id for row in [*corrections,*state_events]}
         actors={row.id:row.name for row in db.scalars(select(User).where(User.id.in_(actor_ids))).all()} if actor_ids else {}
         query=select(Job).join(PassportInspection,PassportInspection.job_id==Job.id).where(PassportInspection.passport_id==identifier,Job.company_id==user.company_id)
         if user.role!='admin': query=query.where(Job.engineer_id==user.id)
@@ -176,12 +209,14 @@ def register(app, user_dep, check_job):
                                 'repair_outcome':latest,'outcome_revision_count':len(rows)})
         return {'passport':product,'site':owned(db,Site,product.site_id,user),'events':events,
                 'corrections':[serialise_correction(row,actors.get(row.actor_id,'Unknown user')) for row in corrections],
+                'state_history':[serialise_state_event(row,actors.get(row.actor_id,'Unknown user')) for row in state_events],
                 'inspections':inspections,'failure_analysis':analyse_failures(db,jobs)}
 
     @app.patch('/api/passports/{identifier}')
     def correct(identifier:str,data:PassportCorrectionIn,user=Depends(user_dep),db:Session=Depends(get_db)):
         admin(user)
         product=owned(db,ProductPassport,identifier,user)
+        if product.archived_at:raise HTTPException(409,'Restore this passport before correcting its identity')
         site=owned(db,Site,data.site_id,user)
         if product.version != data.expected_version:
             raise HTTPException(409,'Passport changed; refresh and review the latest version')
@@ -221,9 +256,42 @@ def register(app, user_dep, check_job):
             db.rollback();raise HTTPException(409,'Passport changed; refresh and review the latest version')
         return detail(identifier,user,db)
 
+    @app.post('/api/passports/{identifier}/state')
+    def change_state(identifier:str,data:PassportStateIn,user=Depends(user_dep),db:Session=Depends(get_db)):
+        admin(user)
+        product=owned(db,ProductPassport,identifier,user)
+        current='Archived' if product.archived_at else 'Active'
+        if product.version != data.expected_version:
+            raise HTTPException(409,'Passport changed; refresh and review the latest version')
+        if current == data.state:
+            raise HTTPException(409,f'Passport is already {current.lower()}')
+        version=product.version+1
+        payload={'previous_state':current,'state':data.state,'reason':data.reason}
+        encoded=json.dumps(payload,sort_keys=True,separators=(',',':'),ensure_ascii=False)
+        digest=hashlib.sha256(encoded.encode()).hexdigest()
+        archived_at=now() if data.state=='Archived' else None
+        changed=db.execute(update(ProductPassport).where(ProductPassport.id==identifier,
+            ProductPassport.company_id==user.company_id,ProductPassport.version==data.expected_version).values(
+                archived_at=archived_at,version=version)).rowcount
+        if changed != 1:
+            db.rollback();raise HTTPException(409,'Passport changed; refresh and review the latest version')
+        state_event=PassportStateEvent(id=str(uuid.uuid4()),passport_id=identifier,company_id=user.company_id,
+            version=version,actor_id=user.id,payload_json=encoded,sha256=digest)
+        db.add(state_event)
+        db.add(PassportEvent(id=str(uuid.uuid4()),passport_id=identifier,recorded_by_id=user.id,
+            kind='Correction note',occurred_on=date.today().isoformat(),
+            note=f'Passport {data.state.lower()} at version {version}. Reason: {data.reason}'))
+        log(db,user.company_id,user.id,f'passport.{data.state.lower()}','passport',identifier,
+            {'version':version,'state_event_id':state_event.id,'sha256':digest})
+        try:db.commit()
+        except IntegrityError:
+            db.rollback();raise HTTPException(409,'Passport changed; refresh and review the latest version')
+        return detail(identifier,user,db)
+
     @app.post('/api/passports/{identifier}/events')
     def add_event(identifier:str,data:EventIn,user=Depends(user_dep),db:Session=Depends(get_db)):
-        owned(db,ProductPassport,identifier,user)
+        product=owned(db,ProductPassport,identifier,user)
+        if product.archived_at:raise HTTPException(409,'Restore this passport before adding lifecycle notes')
         record=PassportEvent(id=str(uuid.uuid4()),passport_id=identifier,recorded_by_id=user.id,kind=data.kind,occurred_on=data.occurred_on.isoformat(),note=data.note)
         db.add(record);log(db,user.company_id,user.id,'passport.event_added','passport',identifier,{'event_id':record.id})
         db.commit();db.refresh(record);return record
@@ -231,6 +299,7 @@ def register(app, user_dep, check_job):
     @app.post('/api/passports/{identifier}/inspections')
     def link(identifier:str,data:LinkIn,user=Depends(user_dep),db:Session=Depends(get_db)):
         product=owned(db,ProductPassport,identifier,user)
+        if product.archived_at:raise HTTPException(409,'Restore this passport before linking an inspection')
         job=db.get(Job,data.job_id);check_job(job,user)
         site=owned(db,Site,product.site_id,user)
         if job.customer_id and job.customer_id!=site.customer_id:

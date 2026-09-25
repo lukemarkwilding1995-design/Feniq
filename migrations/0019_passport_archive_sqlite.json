@@ -1,0 +1,8 @@
+[
+  "ALTER TABLE product_passports ADD COLUMN archived_at DATETIME",
+  "CREATE TABLE passport_state_events (id VARCHAR(64) NOT NULL, passport_id VARCHAR(64) NOT NULL, company_id INTEGER NOT NULL, version INTEGER NOT NULL, actor_id INTEGER NOT NULL, created_at DATETIME NOT NULL, payload_json TEXT NOT NULL, sha256 VARCHAR(64) NOT NULL, PRIMARY KEY (id), CONSTRAINT uq_passport_state_version UNIQUE (passport_id, version), FOREIGN KEY(passport_id) REFERENCES product_passports (id), FOREIGN KEY(company_id) REFERENCES companies (id), FOREIGN KEY(actor_id) REFERENCES users (id))",
+  "CREATE INDEX ix_passport_state_events_passport_id ON passport_state_events (passport_id)",
+  "CREATE INDEX ix_passport_state_events_company_id ON passport_state_events (company_id)",
+  "CREATE TRIGGER passport_state_events_no_update BEFORE UPDATE ON passport_state_events BEGIN SELECT RAISE(ABORT, 'Passport state history is immutable'); END",
+  "CREATE TRIGGER passport_state_events_no_delete BEFORE DELETE ON passport_state_events BEGIN SELECT RAISE(ABORT, 'Passport state history is immutable'); END"
+]

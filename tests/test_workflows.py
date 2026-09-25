@@ -899,6 +899,52 @@ class WorkflowTests(unittest.TestCase):
             with engine.begin() as connection:
                 connection.execute(text('DELETE FROM passport_corrections'))
 
+    def test_passport_archive_restore_is_versioned_and_blocks_new_activity(self):
+        product=self.passport();url='/api/passports/'+product['id']
+        archive={'expected_version':1,'state':'Archived','reason':'Product removed from active service register'}
+        self.assertEqual(self.client.post(url+'/state',headers=self.engineer,json=archive).status_code,403)
+        archived=self.client.post(url+'/state',headers=self.admin,json=archive)
+        self.assertEqual(archived.status_code,200)
+        detail=archived.json()
+        self.assertEqual(detail['passport']['version'],2)
+        self.assertIsNotNone(detail['passport']['archived_at'])
+        self.assertEqual(detail['state_history'][0]['payload']['previous_state'],'Active')
+        self.assertEqual(detail['state_history'][0]['payload']['state'],'Archived')
+        self.assertEqual(detail['state_history'][0]['actor_name'],'Admin')
+        self.assertTrue(detail['state_history'][0]['integrity_valid'])
+        self.assertEqual(self.client.get('/api/passports',headers=self.engineer).json(),[])
+        admin_rows=self.client.get('/api/passports?include_archived=true',headers=self.admin).json()
+        self.assertEqual(admin_rows[0]['id'],product['id'])
+        self.assertIsNotNone(admin_rows[0]['archived_at'])
+        self.assertEqual(self.client.get('/api/passports?include_archived=true',headers=self.engineer).status_code,403)
+        self.assertEqual(self.client.get(url,headers=self.engineer).status_code,200)
+        correction={'expected_version':2,'site_id':product['site_id'],'label':'Archived product',
+                    'product':'Window','manufacturer':'','system_name':'','serial_number':'',
+                    'reason':'Attempted archived edit'}
+        self.assertEqual(self.client.patch(url,headers=self.admin,json=correction).status_code,409)
+        self.assertEqual(self.client.post(url+'/events',headers=self.engineer,json={
+            'kind':'Service note','occurred_on':'2026-09-25','note':'Blocked archived note'}).status_code,409)
+        job=self.job(reference='ARCHIVED-PASSPORT').json()
+        self.assertEqual(self.client.post(url+'/inspections',headers=self.engineer,json={'job_id':job['id']}).status_code,409)
+        self.assertEqual(self.client.post('/api/cases',headers=self.engineer,json={
+            'title':'Archived case','description':'Should be blocked','passport_id':product['id']}).status_code,409)
+        self.assertEqual(self.client.post(url+'/state',headers=self.admin,json=archive).status_code,409)
+        restore={'expected_version':2,'state':'Active','reason':'Product returned to active service register'}
+        restored=self.client.post(url+'/state',headers=self.admin,json=restore)
+        self.assertEqual(restored.status_code,200)
+        self.assertEqual(restored.json()['passport']['version'],3)
+        self.assertIsNone(restored.json()['passport']['archived_at'])
+        self.assertEqual([row['payload']['state'] for row in restored.json()['state_history']],['Archived','Active'])
+        self.assertEqual(self.client.get('/api/passports',headers=self.engineer).json()[0]['id'],product['id'])
+        self.assertEqual(self.client.post(url+'/events',headers=self.engineer,json={
+            'kind':'Service note','occurred_on':'2026-09-25','note':'Activity allowed after restore'}).status_code,200)
+        with self.assertRaises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(text("UPDATE passport_state_events SET payload_json='changed'"))
+        with self.assertRaises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(text('DELETE FROM passport_state_events'))
+
     def test_passport_repeat_failure_analysis_uses_original_diagnoses(self):
         product=self.passport();base='/api/passports/'+product['id']
         first=self.job(reference='RF-1',diagnosis='Locking point interference').json()
