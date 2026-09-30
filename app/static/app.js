@@ -22,6 +22,21 @@ let token = localStorage.getItem("feniq_token") || "",
   draftVersion = 0,
   pageVersion = 0;
 let photoUrls = [];
+let inspectionDirty = false,
+  pendingInspectionExit = null;
+function guardInspectionExit(action) {
+  if (!inspectionDirty) return action();
+  pendingInspectionExit = action;
+  openModal(
+    "Unsaved inspection changes",
+    '<p>Your latest inspection edits have not been saved. Stay here to finish the inspection or use Save draft and exit.</p><p class="muted">Leaving does not update your saved draft or inspection.</p><div class="actions"><button class="primary" data-action="close">Keep editing</button><button data-action="leave-inspection">Leave without saving edits</button></div>',
+  );
+}
+window.addEventListener("beforeunload", (event) => {
+  if (!inspectionDirty) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
 const outcomes = [
   "Adjusted / Resolved",
   "Parts Required",
@@ -145,6 +160,8 @@ function openModal(title, html) {
   $("modal").showModal();
 }
 function signOut() {
+  inspectionDirty = false;
+  pendingInspectionExit = null;
   token = "";
   user = null;
   draft = {};
@@ -253,23 +270,27 @@ $("authForm").onsubmit = async (e) => {
     b.disabled = false;
   }
 };
-$("logout").onclick = signOut;
+$("logout").onclick = () => guardInspectionExit(signOut);
 $("menuToggle").onclick = () =>
   document.querySelector(".sidebar").classList.toggle("open");
 $("switchRole").onclick = () =>
-  busy($("switchRole"), async () =>
+  guardInspectionExit(() => busy($("switchRole"), async () =>
     enter(
       await api(
         "/api/demo?role=" + (user.role === "admin" ? "engineer" : "admin"),
         { method: "POST" },
       ),
     ),
-  );
+  ));
 $("switchReviewer").onclick = () =>
-  busy($("switchReviewer"), async () =>
+  guardInspectionExit(() => busy($("switchReviewer"), async () =>
     enter(await api("/api/demo?role=reviewer", { method: "POST" })),
-  );
+  ));
 async function go(id) {
+  if (inspectionDirty && !["inspection", "checks", "result"].includes(id)) {
+    guardInspectionExit(() => go(id));
+    return;
+  }
   screen = id;
   const version = ++pageVersion;
   document.querySelector(".sidebar").classList.remove("open");
@@ -775,6 +796,7 @@ function guideCards(gs) {
     : empty("No matching guides", "Try another product or component name.");
 }
 function startInspection(customer = "", order = null, customerId = null) {
+  inspectionDirty = false;
   draft = {
     customer,
     customer_id: order?.customer_id || customerId,
@@ -873,6 +895,7 @@ async function saveInspectionDraft() {
     "PUT",
   );
   draftVersion = saved.version;
+  inspectionDirty = false;
   await go("dashboard");
   toast("Private inspection draft saved. Resume it from your workspace.");
 }
@@ -880,6 +903,7 @@ async function resumeInspectionDraft() {
   const saved = await api("/api/inspection-draft");
   if (!saved) throw Error("No saved inspection draft is available.");
   draft = saved.payload;
+  inspectionDirty = false;
   draftVersion = saved.version;
   workOrderId = draft.work_order_id || null;
   editing = null;
@@ -1162,6 +1186,14 @@ document.addEventListener("click", async (e) => {
       draft.approved_by_engineer = false;
     }
     await go(b.dataset.go);
+    return;
+  }
+  if (b.dataset.action === "leave-inspection") {
+    const action = pendingInspectionExit;
+    pendingInspectionExit = null;
+    inspectionDirty = false;
+    $("modal").close();
+    if (action) await action();
     return;
   }
   if (b.dataset.report) {
@@ -1463,9 +1495,11 @@ document.addEventListener("submit", async (e) => {
       }
       if (form.id === "detailsForm") {
         captureDraftForm();
+        inspectionDirty = true;
         await go("checks");
       }
       if (form.id === "checksForm") {
+        inspectionDirty = true;
         const checks = catalogue.find((m) => m.id === draft.module).checks;
         draft.diagnostic_answers = {};
         for (const c of checks) {
@@ -1502,6 +1536,7 @@ document.addEventListener("submit", async (e) => {
         );
         editing = activeJob.id;
         draftVersion = 0;
+        inspectionDirty = false;
         await go("report");
         toast(
           "Inspection saved. Add photos or record the repair outcome below.",
@@ -1737,6 +1772,8 @@ document.addEventListener("input", (e) => {
 document.addEventListener("input", (e) => {
   const f = e.target.form;
   if (!f || !e.target.name) return;
+  if (["detailsForm", "checksForm", "resultForm"].includes(f.id))
+    inspectionDirty = true;
   if (["detailsForm", "resultForm"].includes(f.id))
     draft[e.target.name] =
       e.target.type === "checkbox" ? e.target.checked : e.target.value;
@@ -1757,6 +1794,8 @@ document.addEventListener("input", (e) => {
   }
 });
 document.addEventListener("change", (e) => {
+  if (["detailsForm", "checksForm", "resultForm"].includes(e.target.form?.id))
+    inspectionDirty = true;
   if (e.target.form?.id === "detailsForm" && e.target.name === "module") {
     draft.diagnostic_answers = {};
     diagnosis = null;
